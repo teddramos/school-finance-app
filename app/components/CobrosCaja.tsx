@@ -1,7 +1,7 @@
-// components/CobrosCaja.tsx
 'use client';
 
 import { useState } from 'react';
+import Skeleton from './skeletons/Skeleton';
 
 interface Hijo {
   id?: number;
@@ -167,7 +167,19 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
             ))}
           </div>
         )}
-        {loading && <div style={{ marginTop: '10px', textAlign: 'center' }}><span className="spin"></span> Buscando...</div>}
+        {loading && (
+          <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {[1, 2].map((i) => (
+              <div key={i} style={{ padding: '9px 13px', border: '1.5px solid var(--hc-gray-l)', borderRadius: '8px', background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <Skeleton width={140} height={14} style={{ marginBottom: 4 }} />
+                  <Skeleton width={90} height={10} />
+                </div>
+                <Skeleton width={20} height={20} borderRadius={4} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {padreSeleccionado && (
@@ -201,8 +213,6 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
                 className="btn btn-sm"
                 style={{ background: 'rgba(255,255,255,.15)', color: 'white' }}
                 onClick={() => {
-                  // Abrir historial - se puede implementar con un modal global
-                  // Por ahora, lanzamos evento o se podría integrar con un estado en la página padre
                   window.dispatchEvent(new CustomEvent('openHistorial', { detail: padreSeleccionado.id }));
                 }}
               >
@@ -265,7 +275,16 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
           </div>
 
           {cargandoDeudas ? (
-            <div style={{ padding: '12px 18px', textAlign: 'center' }}><span className="spin"></span> Cargando deudas...</div>
+            <div style={{ padding: '16px 18px', background: 'white', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <Skeleton width={130} height={14} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 12px', border: '1px solid var(--hc-gray-l)', borderRadius: '6px' }}>
+                <div>
+                  <Skeleton width={100} height={14} style={{ marginBottom: 4 }} />
+                  <Skeleton width={140} height={10} />
+                </div>
+                <Skeleton width={70} height={16} />
+              </div>
+            </div>
           ) : deudas.length > 0 ? (
             <div style={{ padding: '12px 18px', background: 'white', borderRadius: '0 0 var(--radius) var(--radius)' }}>
               <div

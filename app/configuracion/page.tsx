@@ -1,8 +1,8 @@
-// app/configuracion/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import SkeletonConfiguracion from '@/components/skeletons/SkeletonConfiguracion';
 
 interface ConfigData {
   nombre: string;
@@ -89,8 +89,7 @@ export default function ConfiguracionPage() {
     }
   };
 
-  if (!isAdmin) return <div className="page active"><div className="empty">Verificando permisos...</div></div>;
-  if (loading) return <div className="page active"><div className="empty"><div className="spin"></div> Cargando...</div></div>;
+  if (!isAdmin || loading) return <SkeletonConfiguracion />;
 
   return (
     <div className="page active">

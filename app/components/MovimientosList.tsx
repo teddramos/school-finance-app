@@ -1,7 +1,7 @@
-// components/MovimientosList.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import Skeleton from './skeletons/Skeleton';
 
 interface Cuenta {
   id: number;
@@ -132,7 +132,39 @@ export default function MovimientosList({
         </div>
 
         {loading ? (
-          <div className="empty"><div className="spin"></div> Cargando...</div>
+          <div className="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><Skeleton width={50} height={12} /></th>
+                  <th><Skeleton width={100} height={12} /></th>
+                  <th><Skeleton width={130} height={12} /></th>
+                  <th><Skeleton width={50} height={12} /></th>
+                  <th><Skeleton width={80} height={12} /></th>
+                  {canEdit && <th><Skeleton width={40} height={12} /></th>}
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5].map(row => (
+                  <tr key={row}>
+                    <td><Skeleton width={70} height={12} /></td>
+                    <td><Skeleton width={110} height={14} /></td>
+                    <td><Skeleton width={`${55 + (row % 4) * 15}%`} height={12} /></td>
+                    <td><Skeleton width={55} height={18} borderRadius={10} /></td>
+                    <td><Skeleton width={80} height={14} /></td>
+                    {canEdit && (
+                      <td>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <Skeleton width={26} height={26} borderRadius={4} />
+                          <Skeleton width={26} height={26} borderRadius={4} />
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : error ? (
           <div className="empty" style={{ color: 'var(--hc-red)' }}>⚠️ {error}</div>
         ) : movimientos.length === 0 ? (

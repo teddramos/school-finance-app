@@ -1,8 +1,8 @@
-// app/usuarios/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import SkeletonUsuarios from '@/components/skeletons/SkeletonUsuarios';
 
 interface User {
   id: number;
@@ -148,12 +148,8 @@ export default function UsuariosPage() {
     }
   };
 
-  if (!isAdmin) {
-    return <div className="page active"><div className="empty">Verificando permisos...</div></div>;
-  }
-
-  if (loading) {
-    return <div className="page active"><div className="empty"><div className="spin"></div> Cargando usuarios...</div></div>;
+  if (!isAdmin || loading) {
+    return <SkeletonUsuarios />;
   }
 
   return (

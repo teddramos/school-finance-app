@@ -1,8 +1,9 @@
-// app/cuentas/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import SkeletonCuentas from '@/components/skeletons/SkeletonCuentas';
+import Skeleton from '@/components/skeletons/Skeleton';
 
 // Tipos
 interface Cuenta {
@@ -145,7 +146,7 @@ export default function CuentasPage() {
   const formatTipo = (tipo: string) => tipo === 'ingreso' ? '↑ Ingreso' : '↓ Gasto';
   
   if (!isAdmin) {
-    return <div className="page active"><div className="empty">Verificando permisos...</div></div>;
+    return <SkeletonCuentas />;
   }
   
   return (
@@ -169,7 +170,23 @@ export default function CuentasPage() {
         
         {/* Lista de cuentas en formato grid (tres columnas) */}
         {loading ? (
-          <div className="empty"><div className="spin"></div> Cargando...</div>
+          <div className="three-col" style={{ marginTop: '12px' }}>
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: 100 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <Skeleton width={110} height={16} style={{ marginBottom: 6 }} />
+                    <Skeleton width={70} height={18} borderRadius={10} />
+                  </div>
+                  <div style={{ display: 'flex', gap: '4px' }}>
+                    <Skeleton width={26} height={26} borderRadius={4} />
+                    <Skeleton width={26} height={26} borderRadius={4} />
+                  </div>
+                </div>
+                <Skeleton width="85%" height={12} style={{ marginTop: 4 }} />
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div className="empty" style={{ color: 'var(--hc-red)' }}>⚠️ {error}</div>
         ) : filteredCuentas.length === 0 ? (

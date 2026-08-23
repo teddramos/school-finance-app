@@ -1,7 +1,7 @@
-// components/modals/HistorialModal.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import Skeleton from '../skeletons/Skeleton';
 
 interface Factura {
   id: number;
@@ -114,7 +114,20 @@ export default function HistorialModal({ isOpen, padreId, padreNombre, onClose }
         </div>
 
         {loading ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}><span className="spin"></span> Cargando historial...</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '10px 0' }}>
+            {[1, 2, 3].map((i) => (
+              <div key={i} style={{ border: '1px solid var(--hc-gray-l)', borderRadius: 8, padding: '12px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <Skeleton width={120} height={16} style={{ marginBottom: 6 }} />
+                  <Skeleton width={160} height={12} />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                  <Skeleton width={70} height={18} />
+                  <Skeleton width={55} height={18} borderRadius={10} />
+                </div>
+              </div>
+            ))}
+          </div>
         ) : error ? (
           <div style={{ color: 'var(--hc-red)', textAlign: 'center', padding: '20px' }}>⚠️ {error}</div>
         ) : (

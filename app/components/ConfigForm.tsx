@@ -1,7 +1,7 @@
-// components/ConfigForm.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import Skeleton from './skeletons/Skeleton';
 
 interface ConfigData {
   nombre: string;
@@ -78,7 +78,32 @@ export default function ConfigForm({ onSave }: ConfigFormProps) {
   };
 
   if (loading) {
-    return <div className="empty"><div className="spin"></div> Cargando configuración...</div>;
+    return (
+      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Skeleton variant="title" width={200} height={18} />
+        <div className="cfg-grid">
+          {[1, 2, 3, 4].map(i => (
+            <div key={i} className="fgroup" style={{ margin: 0 }}>
+              <Skeleton width={110} height={12} style={{ marginBottom: 6 }} />
+              <Skeleton variant="input" height={38} />
+            </div>
+          ))}
+        </div>
+        <div className="fgroup" style={{ margin: 0 }}>
+          <Skeleton width={80} height={12} style={{ marginBottom: 6 }} />
+          <Skeleton variant="input" height={38} />
+        </div>
+        <div className="fgroup" style={{ margin: 0 }}>
+          <Skeleton width={90} height={12} style={{ marginBottom: 6 }} />
+          <Skeleton variant="input" height={38} />
+        </div>
+        <div className="fgroup" style={{ margin: 0 }}>
+          <Skeleton width={180} height={12} style={{ marginBottom: 6 }} />
+          <Skeleton variant="input" height={38} />
+        </div>
+        <Skeleton variant="btn" width="100%" height={44} style={{ marginTop: 10 }} />
+      </div>
+    );
   }
 
   return (

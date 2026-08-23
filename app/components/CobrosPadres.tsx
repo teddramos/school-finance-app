@@ -1,7 +1,7 @@
-// components/CobrosPadres.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SkeletonPadresGrid } from './skeletons/SkeletonCobros';
 
 interface Hijo {
   id?: number;
@@ -256,7 +256,7 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
   };
 
   if (loading) {
-    return <div className="empty"><div className="spin"></div> Cargando padres...</div>;
+    return <SkeletonPadresGrid />;
   }
 
   return (

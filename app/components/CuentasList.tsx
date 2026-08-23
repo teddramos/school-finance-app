@@ -1,7 +1,7 @@
-// components/CuentasList.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import Skeleton from './skeletons/Skeleton';
 
 interface Cuenta {
   id: number;
@@ -46,7 +46,23 @@ export default function CuentasList({ onEdit, onDelete, canEdit = false, refresh
   const formatTipo = (tipo: string) => tipo === 'ingreso' ? '↑ Ingreso' : '↓ Gasto';
 
   if (loading) {
-    return <div className="empty"><div className="spin"></div> Cargando cuentas...</div>;
+    return (
+      <div>
+        <div className="tabs">
+          <Skeleton width={60} height={30} borderRadius={6} style={{ marginRight: 6 }} />
+          <Skeleton width={75} height={30} borderRadius={6} style={{ marginRight: 6 }} />
+          <Skeleton width={65} height={30} borderRadius={6} />
+        </div>
+        <div className="three-col" style={{ marginTop: '12px' }}>
+          {[1, 2, 3, 4, 5, 6].map(i => (
+            <div key={i} className="card" style={{ display: 'flex', flexDirection: 'column', gap: '8px', minHeight: 90 }}>
+              <Skeleton width={110} height={16} />
+              <Skeleton width={60} height={18} borderRadius={10} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (error) {

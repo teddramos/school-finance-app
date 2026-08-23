@@ -6,6 +6,7 @@ import { useRouter, usePathname } from 'next/navigation';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
 import Footer from './Footer';
+import SkeletonAppLayout from './skeletons/SkeletonAppLayout';
 
 interface User {
   id: number;
@@ -49,11 +50,7 @@ export default function LayoutClient({ children }: { children: React.ReactNode }
   };
 
   if (loading) {
-    return (
-      <div className="app-wrap" style={{ alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        <div className="spin"></div> Cargando...
-      </div>
-    );
+    return <SkeletonAppLayout />;
   }
 
   if (!user) return null;

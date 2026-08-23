@@ -1,8 +1,8 @@
-// components/RepCobros.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import * as XLSX from 'xlsx';
+import Skeleton from './skeletons/Skeleton';
 
 interface Hijo {
   nombre: string;
@@ -214,7 +214,66 @@ export default function RepCobros({ refreshTrigger = 0 }: RepCobrosProps) {
   };
 
   if (loading) {
-    return <div className="empty"><div className="spin"></div> Cargando reporte...</div>;
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', flexWrap: 'wrap' }}>
+          <Skeleton width={80} height={36} borderRadius={8} />
+          <Skeleton width={110} height={36} borderRadius={8} />
+          <Skeleton variant="btn" width={90} height={36} />
+          <Skeleton variant="btn" width={90} height={36} />
+        </div>
+
+        <div className="card">
+          <div style={{ textAlign: 'center', paddingBottom: '18px', marginBottom: '18px', borderBottom: '3px solid var(--hc-gray-l)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+            <Skeleton width={32} height={32} borderRadius="50%" />
+            <Skeleton variant="title" width={220} height={22} />
+            <Skeleton width={180} height={12} />
+            <Skeleton width={200} height={26} borderRadius={4} style={{ marginTop: 6 }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px', marginBottom: '18px' }}>
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} style={{ background: 'var(--hc-cream)', borderRadius: '7px', padding: '10px 12px' }}>
+                <Skeleton width={80} height={10} style={{ marginBottom: 4 }} />
+                <Skeleton width={100} height={20} />
+              </div>
+            ))}
+          </div>
+
+          <div className="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th><Skeleton width={100} height={12} /></th>
+                  <th><Skeleton width={40} height={12} /></th>
+                  <th><Skeleton width={70} height={12} /></th>
+                  <th><Skeleton width={80} height={12} /></th>
+                  <th><Skeleton width={70} height={12} /></th>
+                  <th><Skeleton width={60} height={12} /></th>
+                  <th><Skeleton width={50} height={12} /></th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3, 4, 5].map((row) => (
+                  <tr key={row}>
+                    <td>
+                      <Skeleton width={120} height={14} style={{ marginBottom: 3 }} /><br />
+                      <Skeleton width={80} height={10} />
+                    </td>
+                    <td><Skeleton width={25} height={14} /></td>
+                    <td><Skeleton width={60} height={14} /></td>
+                    <td><Skeleton width={75} height={14} /></td>
+                    <td><Skeleton width={70} height={14} /></td>
+                    <td><Skeleton width={70} height={14} /></td>
+                    <td><Skeleton width={55} height={18} borderRadius={10} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

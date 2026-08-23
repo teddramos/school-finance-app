@@ -1,9 +1,9 @@
-// app/reportes/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import * as XLSX from 'xlsx';
+import Skeleton from '@/components/skeletons/Skeleton';
 
 // Tipos
 interface Movimiento {
@@ -173,7 +173,45 @@ export default function ReportesPage() {
 
         {/* Contenido del reporte */}
         {loading ? (
-          <div className="card empty"><div className="spin"></div> Cargando reporte...</div>
+          <div className="card">
+            <div style={{ textAlign: 'center', paddingBottom: '18px', marginBottom: '18px', borderBottom: '3px solid var(--hc-gray-l)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <Skeleton width={32} height={32} borderRadius="50%" />
+              <Skeleton variant="title" width={240} height={24} />
+              <Skeleton width={180} height={12} />
+              <Skeleton width={220} height={26} borderRadius={4} style={{ marginTop: 6 }} />
+            </div>
+
+            <div style={{ marginBottom: '18px' }}>
+              <Skeleton width={110} height={16} style={{ marginBottom: 8 }} />
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th><Skeleton width={100} height={12} /></th>
+                      <th><Skeleton width={150} height={12} /></th>
+                      <th><Skeleton width={70} height={12} /></th>
+                      <th style={{ textAlign: 'right' }}><Skeleton width={70} height={12} /></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[1, 2, 3].map((row) => (
+                      <tr key={row}>
+                        <td><Skeleton width={110} height={14} /></td>
+                        <td><Skeleton width={160} height={12} /></td>
+                        <td><Skeleton width={65} height={12} /></td>
+                        <td style={{ textAlign: 'right' }}><Skeleton width={80} height={14} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div style={{ background: '#e8f5ee', borderRadius: '8px', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Skeleton width={130} height={18} />
+              <Skeleton width={110} height={24} />
+            </div>
+          </div>
         ) : error ? (
           <div className="card empty" style={{ color: 'var(--hc-red)' }}>⚠️ {error}</div>
         ) : reporte ? (

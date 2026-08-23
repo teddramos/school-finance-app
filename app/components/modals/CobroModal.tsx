@@ -1,7 +1,7 @@
-// components/modals/CobroModal.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import Skeleton from '../skeletons/Skeleton';
 
 // Interfaces
 interface Hijo {
@@ -231,7 +231,24 @@ export default function CobroModal({ isOpen, padreId, onClose, onSuccess, onPaym
         </div>
 
         {cargandoDatos ? (
-          <div style={{ textAlign: 'center', padding: '40px' }}>Cargando datos...</div>
+          <div style={{ padding: '16px 0', display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ background: 'var(--hc-cream)', borderRadius: '8px', padding: '14px', display: 'flex', justifyContent: 'space-between' }}>
+              <div>
+                <Skeleton width={140} height={16} style={{ marginBottom: 6 }} />
+                <Skeleton width={180} height={12} />
+              </div>
+              <Skeleton width={100} height={20} />
+            </div>
+            <div className="two-col">
+              <Skeleton variant="input" height={40} />
+              <Skeleton variant="input" height={40} />
+            </div>
+            <Skeleton variant="input" height={80} />
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+              <Skeleton variant="btn" width={80} height={36} />
+              <Skeleton variant="btn" width={110} height={36} />
+            </div>
+          </div>
         ) : (
           <>
             <div style={{ background: 'var(--hc-cream)', borderRadius: '8px', padding: '11px', marginBottom: '14px', fontSize: '13px' }}>

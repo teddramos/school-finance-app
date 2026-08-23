@@ -1,5 +1,6 @@
-// components/DashboardStats.tsx
 'use client';
+
+import Skeleton from './skeletons/Skeleton';
 
 interface StatsData {
   ingresosMes: number;
@@ -22,12 +23,12 @@ export default function DashboardStats({ stats }: DashboardStatsProps) {
     return (
       <div className="stats-row">
         {[1, 2, 3, 4].map(i => (
-          <div key={i} className="stat-card" style={{ opacity: 0.6 }}>
-            <div className="stat-ri">
-              <span className="stat-label">Cargando...</span>
-              <div className="stat-icon">⏳</div>
+          <div key={i} className="stat-card">
+            <div className="stat-ri" style={{ marginBottom: 8 }}>
+              <Skeleton variant="text" width={110} height={12} />
+              <Skeleton width={32} height={32} borderRadius={8} />
             </div>
-            <div className="stat-value">---</div>
+            <Skeleton variant="title" width={130} height={24} />
           </div>
         ))}
       </div>

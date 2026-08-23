@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import DashboardStats from '@/components/DashboardStats';
 import DashboardChart from '@/components/DashboardChart';
 import TopCuentas from '@/components/TopCuentas';
+import SkeletonDashboard from '@/components/skeletons/SkeletonDashboard';
 import { useRouter } from 'next/navigation';
 
 export default function DashboardPage() {
@@ -24,7 +25,6 @@ export default function DashboardPage() {
           if (res.status === 401) router.push('/login');
           throw new Error('Error al cargar datos');
         }
-        console.log('Estamos en el dashboard')
         const data = await res.json();
         setStats(data.stats);
         setChartData(data.chart || []);
@@ -42,19 +42,7 @@ export default function DashboardPage() {
   }, [router]);
 
   if (loading) {
-    return (
-      <div className="page active">
-        <div className="page-header">
-          <div>
-            <h2>Dashboard</h2>
-            <p>Cargando datos financieros...</p>
-          </div>
-        </div>
-        <div className="page-wrap" style={{ textAlign: 'center', padding: '50px' }}>
-          <div className="spin"></div> Cargando...
-        </div>
-      </div>
-    );
+    return <SkeletonDashboard />;
   }
 
   if (error) {
