@@ -24,6 +24,7 @@ export default function DashboardPage() {
           if (res.status === 401) router.push('/login');
           throw new Error('Error al cargar datos');
         }
+        console.log('Estamos en el dashboard')
         const data = await res.json();
         setStats(data.stats);
         setChartData(data.chart || []);
