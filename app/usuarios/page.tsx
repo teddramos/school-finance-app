@@ -10,6 +10,13 @@ interface User {
   name: string;
   role: 'admin' | 'asistente' | 'empleado';
   password?: string; // only for creation/editing
+  colegioId?: number | null;
+  colegioNombre?: string | null;
+}
+
+interface ColegioItem {
+  id: number;
+  nombre: string;
 }
 
 const ROLES = {
@@ -31,9 +38,17 @@ export default function UsuariosPage() {
     username: '',
     password: '',
     role: 'asistente' as 'admin' | 'asistente' | 'empleado',
+    colegioId: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+
+  // Colegios (para superadmin)
+  const [colegios, setColegios] = useState<ColegioItem[]>([]);
+  const [filtroColegio, setFiltroColegio] = useState<string>('');
+  const [colegioNombreActual, setColegioNombreActual] = useState<string>('');
+  const [colegioSesion, setColegioSesion] = useState<string>('');
 
   // Verificar permisos y obtener usuario actual
   useEffect(() => {
@@ -46,7 +61,20 @@ export default function UsuariosPage() {
         if (data && data.user.role === 'admin') {
           setIsAdmin(true);
           setCurrentUserId(data.user.id);
+          setColegioNombreActual(data.user.colegioNombre || '');
           loadUsers();
+        } else if (data && data.user.role === 'superadmin') {
+          setIsAdmin(true);
+          setIsSuperAdmin(true);
+          setCurrentUserId(data.user.id);
+          // Colegio seleccionado en el login: filtro y destino por defecto de nuevos usuarios
+          if (data.user.colegioId) {
+            const cid = String(data.user.colegioId);
+            setColegioSesion(cid);
+            setFiltroColegio(cid);
+          }
+          setColegioNombreActual(data.user.colegioNombre || '');
+          loadColegios().then(() => loadUsers());
         } else {
           router.push('/dashboard');
         }
@@ -54,9 +82,27 @@ export default function UsuariosPage() {
       .catch(() => router.push('/login'));
   }, [router]);
 
+  const authHeaders = (): Record<string, string> => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  const loadColegios = async () => {
+    try {
+      const res = await fetch('/api/colegios', { credentials: 'same-origin', headers: authHeaders() });
+      if (!res.ok) throw new Error('Error al cargar colegios');
+      const data = await res.json();
+      setColegios(Array.isArray(data) ? data : []);
+      return data;
+    } catch (err: any) {
+      console.error(err.message);
+      return [];
+    }
+  };
+
   const loadUsers = async () => {
     try {
-      const res = await fetch('/api/users', { credentials: 'same-origin' });
+      const res = await fetch('/api/users', { credentials: 'same-origin', headers: authHeaders() });
       if (!res.ok) throw new Error('Error al cargar usuarios');
       const data = await res.json();
       setUsers(data);
@@ -69,7 +115,13 @@ export default function UsuariosPage() {
 
   const openCreateModal = () => {
     setEditingUser(null);
-    setFormData({ name: '', username: '', password: '', role: 'asistente' });
+    setFormData({
+      name: '',
+      username: '',
+      password: '',
+      role: 'asistente',
+      colegioId: colegioSesion || filtroColegio || '',
+    });
     setModalOpen(true);
   };
 
@@ -80,6 +132,7 @@ export default function UsuariosPage() {
       username: user.username,
       password: '', // password field empty, only fill if changing
       role: user.role,
+      colegioId: user.colegioId ? String(user.colegioId) : '',
     });
     setModalOpen(true);
   };
@@ -99,14 +152,21 @@ export default function UsuariosPage() {
       alert('Contraseña es obligatoria para usuarios nuevos');
       return;
     }
+    if (isSuperAdmin && !editingUser && !formData.colegioId) {
+      alert('Debe seleccionar el colegio del usuario');
+      return;
+    }
     setSubmitting(true);
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         name: formData.name,
         username: formData.username,
         role: formData.role,
         ...(formData.password ? { password: formData.password } : {}),
       };
+      if (isSuperAdmin && !editingUser) {
+        payload.colegioId = parseInt(formData.colegioId, 10);
+      }
       let res;
       if (editingUser) {
         res = await fetch(`/api/users/${editingUser.id}`, {
@@ -123,7 +183,10 @@ export default function UsuariosPage() {
           body: JSON.stringify(payload),
         });
       }
-      if (!res.ok) throw new Error('Error al guardar usuario');
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || 'Error al guardar usuario');
+      }
       setModalOpen(false);
       loadUsers();
     } catch (err: any) {
@@ -140,7 +203,7 @@ export default function UsuariosPage() {
     }
     if (!confirm(`¿Eliminar al usuario "${user.name}"?`)) return;
     try {
-      const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE', credentials: 'same-origin' });
+      const res = await fetch(`/api/users/${user.id}`, { method: 'DELETE', credentials: 'same-origin', headers: authHeaders() });
       if (!res.ok) throw new Error('Error al eliminar');
       loadUsers();
     } catch (err: any) {
@@ -157,13 +220,31 @@ export default function UsuariosPage() {
       <div className="page-header">
         <div>
           <h2>Usuarios</h2>
-          <p>Accesos y roles</p>
+          <p>Accesos y roles{!isSuperAdmin && colegioNombreActual ? ` · ${colegioNombreActual}` : ''}</p>
         </div>
         <button className="btn btn-gold" onClick={openCreateModal}>
           + Nuevo
         </button>
       </div>
       <div className="page-wrap">
+        {/* Filtro por colegio (solo superadmin) */}
+        {isSuperAdmin && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+            <label style={{ fontSize: '12px', fontWeight: 700, color: 'var(--hc-gray)' }}>🏫 Colegio:</label>
+            <select
+              className="inp"
+              style={{ width: 'auto', minWidth: '220px' }}
+              value={filtroColegio}
+              onChange={(e) => setFiltroColegio(e.target.value)}
+            >
+              <option value="">Todos los colegios</option>
+              {colegios.map(c => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
         {/* Lista de usuarios en formato tarjeta para móvil y tabla para escritorio */}
         {error ? (
           <div className="card empty" style={{ color: 'var(--hc-red)' }}>⚠️ {error}</div>
@@ -176,13 +257,16 @@ export default function UsuariosPage() {
                     <tr>
                       <th>Usuario</th>
                       <th>Nombre</th>
+                      {isSuperAdmin && <th>Colegio</th>}
                       <th>Rol</th>
                       <th>Permisos</th>
                       <th>Acc.</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {users.map(user => (
+                    {users
+                      .filter(u => !isSuperAdmin || !filtroColegio || String(u.colegioId ?? '') === filtroColegio)
+                      .map(user => (
                       <tr key={user.id}>
                         <td>
                           <code style={{ background: 'var(--hc-gray-l)', padding: '2px 7px', borderRadius: '3px', fontSize: '11px' }}>
@@ -190,6 +274,7 @@ export default function UsuariosPage() {
                           </code>
                         </td>
                         <td style={{ fontWeight: 600 }}>{user.name}</td>
+                        {isSuperAdmin && <td>{user.colegioNombre || '—'}</td>}
                         <td>
                           <span className={`badge ${ROLES[user.role].badge}`}>
                             {ROLES[user.role].label}
@@ -259,6 +344,17 @@ export default function UsuariosPage() {
               <button className="modal-close" onClick={() => setModalOpen(false)}>×</button>
             </div>
             <form onSubmit={handleSubmit}>
+              {isSuperAdmin && !editingUser && (
+                <div className="fgroup">
+                  <label className="lbl">Colegio *</label>
+                  <select className="inp" name="colegioId" value={formData.colegioId} onChange={handleChange} required>
+                    <option value="">Seleccionar colegio...</option>
+                    {colegios.map(c => (
+                      <option key={c.id} value={c.id}>{c.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="fgroup">
                 <label className="lbl">Nombre Completo</label>
                 <input className="inp" name="name" value={formData.name} onChange={handleChange} required />

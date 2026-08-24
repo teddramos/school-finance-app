@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 import { jwtVerify } from 'jose';
 
 // Public paths that don't require authentication
-const publicPaths = ['/login', '/api/auth/login'];
+const publicPaths = ['/login', '/api/auth/login', '/api/auth/logout', '/api/colegios'];
 
 export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname;

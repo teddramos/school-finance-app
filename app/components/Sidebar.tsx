@@ -8,7 +8,9 @@ interface User {
   id: number;
   name: string;
   username: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  role: 'admin' | 'asistente' | 'empleado' | 'superadmin';
+  colegioId?: number | null;
+  colegioNombre?: string | null;
 }
 
 interface SidebarProps {
@@ -31,8 +33,8 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
     }
   };
 
-  const isAdmin = user.role === 'admin';
-  const canEdit = user.role === 'admin' || user.role === 'asistente';
+  const isAdmin = user.role === 'admin' || user.role === 'superadmin';
+  const canEdit = isAdmin || user.role === 'asistente';
 
   return (
     <>
@@ -44,7 +46,7 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
         <div className="sb-header">
           <div className="sb-logo-icon">🌿</div>
           <div>
-            <div className="sb-logo-text">Las Palmas</div>
+            <div className="sb-logo-text">{user.colegioNombre || 'Las Palmas'}</div>
             <div className="sb-logo-sub">Sistema Financiero</div>
           </div>
         </div>
@@ -121,7 +123,7 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
             <div style={{ overflow: 'hidden', flex: 1 }}>
               <div className="sb-uname">{user.name}</div>
               <div className="sb-urole">
-                {user.role === 'admin' ? 'Administrador' : user.role === 'asistente' ? 'Asistente' : 'Empleado'}
+                {user.role === 'superadmin' ? 'Super Administrador' : user.role === 'admin' ? 'Administrador' : user.role === 'asistente' ? 'Asistente' : 'Empleado'}
               </div>
             </div>
           </div>

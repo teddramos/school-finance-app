@@ -1,29 +1,11 @@
 // app/api/reporte-mensual/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import {
-  getConfig,
-  getMovimientos,
-  getCuentas,
-} from '@/lib/db';
-
-// Helper para obtener usuario autenticado
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
-}
+import { getSession } from '@/lib/auth';
+import { getColegioById, getReporteMensual } from '@/lib/db';
 
 export async function GET(request: Request) {
-  const user = await getAuthenticatedUser();
-  if (!user) {
+  const session = await getSession(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -38,40 +20,25 @@ export async function GET(request: Request) {
       month = now.getMonth() + 1;
     }
 
-    const periodo = `${year}-${String(month).padStart(2, '0')}`;
-    const movimientos = getMovimientos().filter(m => m.periodo === periodo);
-    const cuentas = getCuentas();
-    const config = getConfig();
-
-    // Enriquecer movimientos con nombre de cuenta
-    const movsConCuenta = movimientos.map(m => ({
-      ...m,
-      cuentaNombre: cuentas.find(c => c.id === m.cuentaId)?.nombre || 'Cuenta eliminada',
-    }));
-
-    const ingresos = movsConCuenta.filter(m => m.tipo === 'ingreso');
-    const gastos = movsConCuenta.filter(m => m.tipo === 'gasto');
-
-    const totalIngresos = ingresos.reduce((sum, m) => sum + m.monto, 0);
-    const totalGastos = gastos.reduce((sum, m) => sum + m.monto, 0);
-    const balance = totalIngresos - totalGastos;
+    const config = await getColegioById(session.colegioId!);
+    const reporte = await getReporteMensual(session.colegioId!, year, month);
 
     return NextResponse.json({
       config: {
-        nombre: config.nombre || 'Colegio Las Palmas',
-        rif: config.rif || '',
-        direccion: config.direccion || '',
-        telefono: config.telefono || '',
-        email: config.email || '',
-        director: config.director || '',
-        tarifa: config.tarifa || 1500,
+        nombre: config?.nombre || 'Colegio',
+        rif: config?.rif || '',
+        direccion: config?.direccion || '',
+        telefono: config?.telefono || '',
+        email: config?.email || '',
+        director: config?.director || '',
+        tarifa: Number(config?.tarifa ?? 1500),
       },
-      periodo,
-      ingresos,
-      gastos,
-      totalIngresos,
-      totalGastos,
-      balance,
+      periodo: reporte.periodo,
+      ingresos: reporte.ingresos,
+      gastos: reporte.gastos,
+      totalIngresos: reporte.totalIngresos,
+      totalGastos: reporte.totalGastos,
+      balance: reporte.balance,
     });
   } catch (error) {
     console.error('Error en /api/reporte-mensual:', error);

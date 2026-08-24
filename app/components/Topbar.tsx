@@ -8,7 +8,9 @@ interface User {
   id: number;
   name: string;
   username: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  role: 'admin' | 'asistente' | 'empleado' | 'superadmin';
+  colegioId?: number | null;
+  colegioNombre?: string | null;
 }
 
 interface TopbarProps {
@@ -58,6 +60,7 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
     admin: 'ADMIN',
     asistente: 'ASISTENTE',
     empleado: 'EMPLEADO',
+    superadmin: 'SUPERADMIN',
   }[user.role];
 
   return (

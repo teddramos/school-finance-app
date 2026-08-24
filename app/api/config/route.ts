@@ -1,44 +1,26 @@
 // app/api/config/route.ts
 import { NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import { getConfig, setConfig } from '@/lib/db';
-
-// Helper para obtener usuario autenticado
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  let token = cookieStore.get('token')?.value;
-  if (!token) {
-    try {
-      const hdr = headers();
-      const auth = hdr.get('authorization') || hdr.get('Authorization');
-      if (auth && auth.startsWith('Bearer ')) token = auth.slice(7);
-    } catch (e) {}
-  }
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
-}
+import { getSession } from '@/lib/auth';
+import { getColegioById, updateColegio } from '@/lib/db';
 
 // Helper para verificar si es admin
-async function isAdmin() {
-  const user = await getAuthenticatedUser();
-  return user?.role === 'admin';
+async function isAdmin(request: Request) {
+  const session = await getSession(request);
+  return session?.role === 'admin' || session?.role === 'superadmin' ? session : null;
 }
 
-// GET /api/config - Obtener configuración del colegio (cualquier usuario autenticado)
-export async function GET() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
+// GET /api/config - Obtener configuración del colegio activo (autenticado)
+export async function GET(request: Request) {
+  const session = await getSession(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
-    const config = getConfig();
+    if (!session.colegioId) {
+      return NextResponse.json({ error: 'Sin colegio activo' }, { status: 400 });
+    }
+    const config = await getColegioById(session.colegioId);
     return NextResponse.json(config);
   } catch (error) {
     console.error('Error GET config:', error);
@@ -46,10 +28,10 @@ export async function GET() {
   }
 }
 
-// PUT /api/config - Actualizar configuración (solo admin)
+// PUT /api/config - Actualizar configuración del colegio activo (solo admin)
 export async function PUT(request: Request) {
-  const admin = await isAdmin();
-  if (!admin) {
+  const session = await isAdmin(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado, se requieren permisos de administrador' }, { status: 401 });
   }
 
@@ -62,19 +44,16 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'El nombre del colegio es requerido' }, { status: 400 });
     }
 
-    const config = getConfig();
-    const updatedConfig = {
-      ...config,
+    const updatedConfig = await updateColegio(session.colegioId!, {
       nombre: nombre.trim(),
       rif: rif?.trim() || '',
       telefono: telefono?.trim() || '',
       email: email?.trim() || '',
       direccion: direccion?.trim() || '',
       director: director?.trim() || '',
-      tarifa: typeof tarifa === 'number' && tarifa > 0 ? tarifa : 1500,
-    };
+      tarifa: typeof tarifa === 'number' && tarifa > 0 ? tarifa : undefined,
+    });
 
-    setConfig(updatedConfig);
     return NextResponse.json(updatedConfig);
   } catch (error) {
     console.error('Error PUT config:', error);

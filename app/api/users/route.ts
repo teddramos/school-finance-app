@@ -1,47 +1,44 @@
 // app/api/users/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import { getUsers, setUsers } from '@/lib/db';
-import { User } from '@/types';
+import { getSession } from '@/lib/auth';
+import { listUsers, createUser, usernameExists } from '@/lib/db';
 
-// Helper para obtener el usuario autenticado y verificar rol admin
-async function getAuthenticatedAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    if (decoded.role !== 'admin') return null;
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-// GET /api/users - Listar todos los usuarios (solo admin)
-export async function GET() {
-  const admin = await getAuthenticatedAdmin();
-  if (!admin) {
+// GET /api/users - Listar usuarios (admin: su colegio · superadmin: todos o ?colegioId=)
+export async function GET(request: Request) {
+  const session = await getSession(request);
+  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
-  const users = getUsers();
-  // Ocultar contraseñas
-  const safeUsers = users.map(({ password, ...rest }) => rest);
-  return NextResponse.json(safeUsers);
+  try {
+    const { searchParams } = new URL(request.url);
+    let colegioId = session.colegioId ?? undefined;
+    if (session.role === 'superadmin') {
+      const qId = parseInt(searchParams.get('colegioId') || '');
+      colegioId = isNaN(qId) ? undefined : qId; // superadmin sin filtro ve todo
+    }
+    const users = await listUsers(colegioId);
+    // Ocultar contraseñas
+    const safeUsers = users.map(({ password, ...rest }) => rest);
+    return NextResponse.json(safeUsers);
+  } catch (error) {
+    console.error('Error GET users:', error);
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+  }
 }
 
-// POST /api/users - Crear nuevo usuario (solo admin)
+// POST /api/users - Crear usuario
+//  - admin: crea usuarios de su propio colegio
+//  - superadmin: crea usuarios para cualquier colegio (body.colegioId)
 export async function POST(request: Request) {
-  const admin = await getAuthenticatedAdmin();
-  if (!admin) {
+  const session = await getSession(request);
+  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
     const body = await request.json();
-    const { name, username, password, role } = body;
+    const { name, username, password, role, colegioId } = body;
 
     if (!name || !username || !password || !role) {
       return NextResponse.json(
@@ -54,24 +51,32 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Rol inválido' }, { status: 400 });
     }
 
-    const users = getUsers();
+    // Determinar colegio destino
+    let targetColegioId: number | null;
+    if (session.role === 'superadmin') {
+      targetColegioId = parseInt(String(colegioId ?? ''), 10);
+      if (isNaN(targetColegioId)) {
+        return NextResponse.json({ error: 'Debe seleccionar el colegio del usuario' }, { status: 400 });
+      }
+    } else {
+      targetColegioId = session.colegioId;
+    }
+
     // Verificar que el username no exista
-    if (users.some(u => u.username === username)) {
+    if (await usernameExists(username)) {
       return NextResponse.json(
         { error: 'El nombre de usuario ya existe' },
         { status: 400 }
       );
     }
 
-    const newUser: User = {
-      id: Date.now(),
+    const newUser = await createUser({
+      colegioId: targetColegioId,
       name,
       username,
-      password, // En producción debería ser hasheado con bcrypt
+      password,
       role,
-    };
-
-    setUsers([...users, newUser]);
+    });
 
     const { password: _, ...safeUser } = newUser;
     return NextResponse.json(safeUser, { status: 201 });

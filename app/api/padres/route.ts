@@ -1,44 +1,17 @@
 // app/api/padres/route.ts
 import { NextResponse } from 'next/server';
-import { cookies, headers } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import { getPadres, setPadres } from '@/lib/db';
-
-// Helper para obtener usuario autenticado
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  let token = cookieStore.get('token')?.value;
-  // Fallback: Authorization header Bearer <token>
-  if (!token) {
-    try {
-      const hdr = headers();
-      const auth = hdr.get('authorization') || hdr.get('Authorization');
-      if (auth && auth.startsWith('Bearer ')) {
-        token = auth.slice(7);
-      }
-    } catch (e) {
-      // ignore
-    }
-  }
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
-}
+import { getSession } from '@/lib/auth';
+import { listPadres, createPadre, padreExistsByCedula } from '@/lib/db';
 
 // Verificar si puede gestionar padres (admin o asistente)
-async function canManagePadres() {
-  const user = await getAuthenticatedUser();
-  return user?.role === 'admin' || user?.role === 'asistente';
+function canManagePadres(role?: string) {
+  return role === 'admin' || role === 'asistente' || role === 'superadmin';
 }
 
 // GET /api/padres?q=texto
 export async function GET(request: Request) {
-  const user = await getAuthenticatedUser();
-  if (!user) {
+  const session = await getSession(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -46,7 +19,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q')?.toLowerCase() || '';
 
-    let padres = getPadres();
+    let padres = await listPadres(session.colegioId!, query || undefined);
 
     if (query) {
       padres = padres.filter(p =>
@@ -54,9 +27,6 @@ export async function GET(request: Request) {
         p.cedula.includes(query)
       );
     }
-
-    // Ordenar por nombre
-    padres.sort((a, b) => a.nombre.localeCompare(b.nombre));
 
     return NextResponse.json(padres);
   } catch (error) {
@@ -67,8 +37,8 @@ export async function GET(request: Request) {
 
 // POST /api/padres - Crear nuevo padre (admin o asistente)
 export async function POST(request: Request) {
-  const can = await canManagePadres();
-  if (!can) {
+  const session = await getSession(request);
+  if (!session || !canManagePadres(session.role)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -83,17 +53,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const padres = getPadres();
-    // Verificar cédula única
-    if (padres.some(p => p.cedula === cedula)) {
+    // Verificar cédula única dentro del colegio
+    if (await padreExistsByCedula(session.colegioId!, cedula.trim())) {
       return NextResponse.json(
         { error: 'Ya existe un padre con esa cédula' },
         { status: 400 }
       );
     }
 
-    const nuevoPadre = {
-      id: Date.now(),
+    const nuevoPadre = await createPadre(session.colegioId!, {
       nombre: nombre.trim(),
       cedula: cedula.trim(),
       telefono: telefono?.trim() || '',
@@ -101,10 +69,8 @@ export async function POST(request: Request) {
       direccion: direccion?.trim() || '',
       hijos: hijos || [],
       descuentos: descuentos || [],
-      activo: true,
-    };
+    });
 
-    setPadres([...padres, nuevoPadre]);
     return NextResponse.json(nuevoPadre, { status: 201 });
   } catch (error) {
     console.error('Error POST padre:', error);

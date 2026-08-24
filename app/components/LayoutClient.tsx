@@ -12,7 +12,9 @@ interface User {
   id: number;
   name: string;
   username: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  role: 'admin' | 'asistente' | 'empleado' | 'superadmin';
+  colegioId?: number | null;
+  colegioNombre?: string | null;
 }
 
 export default function LayoutClient({ children }: { children: React.ReactNode }) {

@@ -1,43 +1,23 @@
 // app/api/cuentas/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import { getCuentas, setCuentas } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { listCuentas, createCuenta } from '@/lib/db';
 
-// Helper para obtener usuario autenticado
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-// Helper para verificar si es admin
-async function isAdmin() {
-  const user = await getAuthenticatedUser();
-  return user?.role === 'admin';
-}
-
-// GET /api/cuentas - Listar todas las cuentas (autenticado)
-export async function GET() {
-  const user = await getAuthenticatedUser();
-  if (!user) {
+// GET /api/cuentas - Listar todas las cuentas del colegio activo (autenticado)
+export async function GET(request: Request) {
+  const session = await getSession(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
-  const cuentas = getCuentas();
+  const cuentas = await listCuentas(session.colegioId!);
   return NextResponse.json(cuentas);
 }
 
 // POST /api/cuentas - Crear nueva cuenta (solo admin)
 export async function POST(request: Request) {
-  const admin = await isAdmin();
-  if (!admin) {
+  const session = await getSession(request);
+  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
     return NextResponse.json({ error: 'No autorizado, se requieren permisos de administrador' }, { status: 401 });
   }
 
@@ -52,15 +32,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const cuentas = getCuentas();
-    const nuevaCuenta = {
-      id: Date.now(),
+    const nuevaCuenta = await createCuenta(session.colegioId!, {
       nombre: nombre.trim(),
       tipo,
       descripcion: descripcion?.trim() || '',
-    };
+    });
 
-    setCuentas([...cuentas, nuevaCuenta]);
     return NextResponse.json(nuevaCuenta, { status: 201 });
   } catch (error) {
     console.error('Error al crear cuenta:', error);

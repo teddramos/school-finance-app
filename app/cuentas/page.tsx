@@ -38,7 +38,7 @@ export default function CuentasPage() {
     fetch('/api/auth/me', { credentials: 'same-origin', headers })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (data && data.user.role === 'admin') {
+        if (data && (data.user.role === 'admin' || data.user.role === 'superadmin')) {
           setIsAdmin(true);
         } else {
           // Si no es admin, redirigir al dashboard

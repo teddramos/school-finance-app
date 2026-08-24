@@ -1,10 +1,66 @@
-// lib/db.ts
+// lib/db.ts — Capa de acceso a datos PostgreSQL (multi-colegio)
+import { Pool, types } from 'pg';
+import fs from 'fs';
+import path from 'path';
+
+// Parsear tipos nativos de PG como valores JS simples
+types.setTypeParser(1082, (v) => v);        // DATE -> 'YYYY-MM-DD'
+types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v))); // NUMERIC -> number
+types.setTypeParser(20, (v) => (v === null ? null : parseInt(v, 10))); // BIGINT -> number
+
+const caPath = process.env.DB_SSL_CA_PATH || 'ca.pem';
+const caFile = path.isAbsolute(caPath) ? caPath : path.join(process.cwd(), caPath);
+
+const pool = new Pool({
+  host: process.env.DB_HOST,
+  port: parseInt(process.env.DB_PORT || '5432', 10),
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 15000,
+  ssl: {
+    ca: fs.readFileSync(caFile).toString('utf8'),
+    rejectUnauthorized: true,
+  },
+});
+
+export { pool };
+
+export async function query<T = any>(text: string, params?: any[]): Promise<T[]> {
+  const res = await pool.query(text, params);
+  return res.rows as T[];
+}
+
+export async function queryOne<T = any>(text: string, params?: any[]): Promise<T | null> {
+  const rows = await query<T>(text, params);
+  return rows.length ? rows[0] : null;
+}
+
+// ---------------- Interfaces (mismo contrato que el demo) ----------------
+
+export type Role = 'superadmin' | 'admin' | 'asistente' | 'empleado';
+
 export interface User {
   id: number;
   username: string;
-  password: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  password?: string;
+  role: Role;
   name: string;
+  colegioId: number | null;
+  colegioNombre?: string | null;
+}
+
+export interface Colegio {
+  id: number;
+  nombre: string;
+  rif: string;
+  telefono: string;
+  email: string;
+  direccion: string;
+  director: string;
+  tarifa: number;
 }
 
 export interface Cuenta {
@@ -25,6 +81,7 @@ export interface Movimiento {
   usuario?: string;
   origen?: string;
   pagoId?: number;
+  cuentaNombre?: string;
 }
 
 export interface Hijo {
@@ -74,6 +131,13 @@ export interface DescuentoAdicional {
   valor: number;
 }
 
+export interface FacturaCubierta {
+  id: number;
+  periodo: string;
+  monto: number;
+  abono: number;
+}
+
 export interface Pago {
   id: number;
   numRecibo: string;
@@ -85,7 +149,7 @@ export interface Pago {
   ref?: string;
   cardDigits?: string;
   obs?: string;
-  facturasCubiertas: Array<{ id: number; periodo: string; monto: number; abono: number }>;
+  facturasCubiertas: FacturaCubierta[];
   usuario?: string;
   cargos: CargoAdicional[];
   descuentosPerfil: number;
@@ -93,316 +157,714 @@ export interface Pago {
   montoBase: number;
 }
 
-export interface Config {
-  nombre: string;
-  rif: string;
-  telefono: string;
-  email: string;
-  direccion: string;
-  director: string;
-  tarifa: number;
+// ---------------- COLEGIOS ----------------
+
+const DEFAULT_CUENTAS: Array<[string, 'ingreso' | 'gasto', string]> = [
+  ['Mensualidades Escolares', 'ingreso', 'Cobros de mensualidad por alumno'],
+  ['Inscripciones', 'ingreso', 'Cobros de inscripción'],
+  ['Actividades Extracurriculares', 'ingreso', 'Ingresos por actividades'],
+  ['Nómina Docente', 'gasto', 'Pago a profesores'],
+  ['Servicios Públicos', 'gasto', 'Agua, luz, gas'],
+  ['Mantenimiento', 'gasto', 'Reparaciones'],
+  ['Material Escolar', 'gasto', 'Útiles y materiales'],
+  ['Administración', 'gasto', 'Gastos administrativos'],
+];
+
+export async function getColegios(): Promise<Array<{ id: number; nombre: string; rif: string; telefono: string; tarifa: number; activo: boolean }>> {
+  return query(
+    `SELECT id, nombre, rif, telefono, tarifa, activo FROM colegios ORDER BY id`
+  );
 }
 
-// --- Initial data (same as demo) ---
-const INIT_USERS: User[] = [
-  { id: 1, username: 'admin', password: 'admin123', role: 'admin', name: 'Administrador' },
-  { id: 2, username: 'asistente', password: 'asist123', role: 'asistente', name: 'María López' },
-  { id: 3, username: 'empleado', password: 'empl123', role: 'empleado', name: 'Carlos Ruiz' },
-];
+export async function getColegioById(id: number): Promise<Colegio | null> {
+  return queryOne<Colegio>(
+    `SELECT id, nombre, rif, telefono, email, direccion, director, tarifa FROM colegios WHERE id = $1`,
+    [id]
+  );
+}
 
-const INIT_CUENTAS: Cuenta[] = [
-  { id: 1, nombre: 'Mensualidades Escolares', tipo: 'ingreso', descripcion: 'Cobros de mensualidad por alumno' },
-  { id: 2, nombre: 'Inscripciones', tipo: 'ingreso', descripcion: 'Cobros de inscripción' },
-  { id: 3, nombre: 'Actividades Extracurriculares', tipo: 'ingreso', descripcion: 'Ingresos por actividades' },
-  { id: 4, nombre: 'Nómina Docente', tipo: 'gasto', descripcion: 'Pago a profesores' },
-  { id: 5, nombre: 'Servicios Públicos', tipo: 'gasto', descripcion: 'Agua, luz, gas' },
-  { id: 6, nombre: 'Mantenimiento', tipo: 'gasto', descripcion: 'Reparaciones' },
-  { id: 7, nombre: 'Material Escolar', tipo: 'gasto', descripcion: 'Útiles y materiales' },
-  { id: 8, nombre: 'Administración', tipo: 'gasto', descripcion: 'Gastos administrativos' },
-];
-
-const INIT_CONFIG: Config = {
-  nombre: 'Colegio Las Palmas',
-  rif: '001-23456-7',
-  direccion: 'Carretera Las Palmas, Bonao, Monseñor Nouel',
-  telefono: '809-832-9405',
-  email: 'admin@colegiolaspalmas.edu',
-  director: 'Prof. Ana Martínez',
-  tarifa: 1500,
-};
-
-const INIT_PADRES: Padre[] = [
-  {
-    id: 101,
-    nombre: 'Juan Pérez García',
-    cedula: '001-1234567-8',
-    telefono: '829-555-1001',
-    email: 'juan.perez@email.com',
-    direccion: 'Calle 5, Bonao',
-    hijos: [
-      { id: 1001, nombre: 'Luis Pérez', grado: '3ro Primaria' },
-      { id: 1002, nombre: 'Ana Pérez', grado: '1ro Primaria' },
-    ],
-    descuentos: [{ id: 9001, nombre: 'Beca Académica', tipo: 'porcentaje', valor: 10, activo: true }],
-    activo: true,
-  },
-  {
-    id: 102,
-    nombre: 'María Santos Rosario',
-    cedula: '001-2345678-9',
-    telefono: '849-555-2002',
-    email: 'maria.santos@email.com',
-    direccion: 'Av. Las Flores #12, Bonao',
-    hijos: [{ id: 1003, nombre: 'Carlos Santos', grado: '5to Primaria' }],
-    descuentos: [],
-    activo: true,
-  },
-  {
-    id: 103,
-    nombre: 'Roberto Familia Núñez',
-    cedula: '001-3456789-0',
-    telefono: '809-555-3003',
-    email: 'roberto.familia@email.com',
-    direccion: 'Los Jardines, Bonao',
-    hijos: [
-      { id: 1004, nombre: 'Sofía Familia', grado: '2do Primaria' },
-      { id: 1005, nombre: 'Miguel Familia', grado: '4to Primaria' },
-      { id: 1006, nombre: 'Paula Familia', grado: 'Kinder' },
-    ],
-    descuentos: [{ id: 9002, nombre: 'Descuento 3 Hijos', tipo: 'porcentaje', valor: 15, activo: true }],
-    activo: true,
-  },
-  {
-    id: 104,
-    nombre: 'Carmen Díaz Marte',
-    cedula: '001-4567890-1',
-    telefono: '829-555-4004',
-    email: 'carmen.diaz@email.com',
-    direccion: 'Villa Sonador, Bonao',
-    hijos: [{ id: 1007, nombre: 'Diego Díaz', grado: '6to Primaria' }],
-    descuentos: [{ id: 9003, nombre: 'Empleado Colegio', tipo: 'fijo', valor: 300, activo: true }],
-    activo: true,
-  },
-  {
-    id: 105,
-    nombre: 'Pedro Reyes Castillo',
-    cedula: '001-5678901-2',
-    telefono: '849-555-5005',
-    email: 'pedro.reyes@email.com',
-    direccion: 'Urb. Palmas, Bonao',
-    hijos: [
-      { id: 1008, nombre: 'Valentina Reyes', grado: 'Kinder' },
-      { id: 1009, nombre: 'Sebastián Reyes', grado: '1ro Primaria' },
-    ],
-    descuentos: [],
-    activo: true,
-  },
-  {
-    id: 106,
-    nombre: 'Luisa Fernanda Matos',
-    cedula: '001-6789012-3',
-    telefono: '809-555-6006',
-    email: 'luisa.matos@email.com',
-    direccion: 'Residencial El Parque #8, Bonao',
-    hijos: [
-      { id: 1010, nombre: 'Isabella Matos', grado: '2do Primaria' },
-      { id: 1011, nombre: 'Andrés Matos', grado: '4to Primaria' },
-    ],
-    descuentos: [{ id: 9004, nombre: 'Beca Excelencia', tipo: 'porcentaje', valor: 20, activo: true }],
-    activo: true,
-  },
-  {
-    id: 107,
-    nombre: 'Francisco Jiménez Cruz',
-    cedula: '001-7890123-4',
-    telefono: '829-555-7007',
-    email: 'francisco.jimenez@email.com',
-    direccion: 'Calle Duarte #45, Bonao',
-    hijos: [{ id: 1012, nombre: 'Gabriel Jiménez', grado: '3ro Primaria' }],
-    descuentos: [],
-    activo: true,
-  },
-  {
-    id: 108,
-    nombre: 'Rosa Elena Corporán',
-    cedula: '001-8901234-5',
-    telefono: '849-555-8008',
-    email: 'rosa.corporan@email.com',
-    direccion: 'Los Almendros, Bonao',
-    hijos: [
-      { id: 1013, nombre: 'Camila Corporán', grado: 'Kinder' },
-      { id: 1014, nombre: 'Emilio Corporán', grado: '1ro Primaria' },
-      { id: 1015, nombre: 'Natalia Corporán', grado: '3ro Primaria' },
-    ],
-    descuentos: [{ id: 9005, nombre: 'Descuento 3 Hijos', tipo: 'porcentaje', valor: 15, activo: true }],
-    activo: true,
-  },
-  {
-    id: 109,
-    nombre: 'Ángel Ramírez Novas',
-    cedula: '001-9012345-6',
-    telefono: '809-555-9009',
-    email: 'angel.ramirez@email.com',
-    direccion: 'Villa Nueva, Bonao',
-    hijos: [
-      { id: 1016, nombre: 'Daniela Ramírez', grado: '5to Primaria' },
-      { id: 1017, nombre: 'Marcos Ramírez', grado: '6to Primaria' },
-    ],
-    descuentos: [],
-    activo: true,
-  },
-  {
-    id: 110,
-    nombre: 'Yolanda Almonte Tejeda',
-    cedula: '001-0123456-7',
-    telefono: '829-555-1010',
-    email: 'yolanda.almonte@email.com',
-    direccion: 'Urb. Los Pinos #3, Bonao',
-    hijos: [{ id: 1018, nombre: 'Samuel Almonte', grado: '2do Primaria' }],
-    descuentos: [{ id: 9006, nombre: 'Empleado Colegio', tipo: 'fijo', valor: 300, activo: true }],
-    activo: true,
-  },
-  {
-    id: 111,
-    nombre: 'Héctor Manuel Guerrero',
-    cedula: '002-1234567-8',
-    telefono: '849-555-1111',
-    email: 'hector.guerrero@email.com',
-    direccion: 'Calle Sánchez #22, Bonao',
-    hijos: [
-      { id: 1019, nombre: 'Valeria Guerrero', grado: '4to Primaria' },
-      { id: 1020, nombre: 'Tomás Guerrero', grado: 'Kinder' },
-    ],
-    descuentos: [],
-    activo: true,
-  },
-  {
-    id: 112,
-    nombre: 'Patricia Núñez Báez',
-    cedula: '002-2345678-9',
-    telefono: '809-555-1212',
-    email: 'patricia.nunez@email.com',
-    direccion: 'Residencial Las Palmas #17, Bonao',
-    hijos: [
-      { id: 1021, nombre: 'Mateo Núñez', grado: '1ro Primaria' },
-      { id: 1022, nombre: 'Lucía Núñez', grado: '3ro Primaria' },
-      { id: 1023, nombre: 'Pablo Núñez', grado: '5to Primaria' },
-    ],
-    descuentos: [
-      { id: 9007, nombre: 'Descuento 3 Hijos', tipo: 'porcentaje', valor: 15, activo: true },
-      { id: 9008, nombre: 'Beca Académica', tipo: 'porcentaje', valor: 5, activo: true },
-    ],
-    activo: true,
-  },
-];
-
-
-function generateFacturas(): Factura[] {
-  const facturas: Factura[] = [];
-  const now = new Date();
-  const tarifa = INIT_CONFIG.tarifa;
-  for (let i = 2; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const periodo = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    for (const padre of INIT_PADRES) {
-      const monto = padre.hijos.length * tarifa;
-      facturas.push({
-        id: Date.now() + Math.random() * 1000 + padre.id * i,
-        padreId: padre.id,
-        periodo,
-        monto,
-        pagado: 0,
-        fecha: periodo + '-01',
-        estado: 'pendiente',
-      });
+export async function createColegio(data: {
+  nombre: string; rif?: string; telefono?: string; email?: string;
+  direccion?: string; director?: string; tarifa?: number;
+}): Promise<Colegio> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `INSERT INTO colegios (nombre, rif, telefono, email, direccion, director, tarifa)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, nombre, rif, telefono, email, direccion, director, tarifa`,
+      [data.nombre, data.rif || '', data.telefono || '', data.email || '',
+       data.direccion || '', data.director || '',
+       typeof data.tarifa === 'number' && data.tarifa > 0 ? data.tarifa : 1500]
+    );
+    const colegio = res.rows[0];
+    // Cuentas contables por defecto para que el colegio funcione de inmediato
+    for (const [nombre, tipo, descripcion] of DEFAULT_CUENTAS) {
+      await client.query(`INSERT INTO cuentas (colegio_id, nombre, tipo, descripcion) VALUES ($1,$2,$3,$4)`, [
+        colegio.id, nombre, tipo, descripcion,
+      ]);
     }
+    await client.query('COMMIT');
+    return colegio;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
   }
-  return facturas;
 }
 
-function generatePagos(facturas: Factura[]): Pago[] {
-  const pagos: Pago[] = [];
-  let reciboCounter = 1;
-  for (const factura of facturas) {
-    // Simular algunos pagos aleatorios (~65% pagados, algunos parciales)
-    const r = Math.random();
-    if (r > 0.35) {
-      const monto = r > 0.7 ? factura.monto : Math.floor(factura.monto * 0.5);
-      factura.pagado = monto;
-      factura.estado = monto >= factura.monto ? 'pagado' : 'parcial';
-      pagos.push({
-        id: Date.now() + Math.random() * 1000 + factura.id,
-        numRecibo: `REC-DEMO-${reciboCounter++}`,
-        facturaId: factura.id,
-        padreId: factura.padreId,
-        monto,
-        fecha: factura.periodo + '-10',
-        forma: 'efectivo',
-        obs: 'Demo',
-        facturasCubiertas: [{ id: factura.id, periodo: factura.periodo, monto: factura.monto, abono: monto }],
-        usuario: 'Sistema',
-        cargos: [],
-        descuentosPerfil: 0,
-        descuentosAdicionales: [],
-        montoBase: factura.monto,
-      });
+export async function updateColegio(id: number, data: Partial<Colegio>): Promise<Colegio | null> {
+  return queryOne<Colegio>(
+    `UPDATE colegios SET
+       nombre    = COALESCE($2, nombre),
+       rif       = COALESCE($3, rif),
+       telefono  = COALESCE($4, telefono),
+       email     = COALESCE($5, email),
+       direccion = COALESCE($6, direccion),
+       director  = COALESCE($7, director),
+       tarifa    = COALESCE($8, tarifa)
+     WHERE id = $1
+     RETURNING id, nombre, rif, telefono, email, direccion, director, tarifa`,
+    [id, data.nombre ?? null, data.rif ?? null, data.telefono ?? null, data.email ?? null,
+     data.direccion ?? null, data.director ?? null, data.tarifa ?? null]
+  );
+}
+
+// ---------------- USUARIOS ----------------
+
+interface UserRow {
+  id: number;
+  colegio_id: number | null;
+  username: string;
+  password: string;
+  role: Role;
+  name: string;
+  colegio_nombre?: string | null;
+}
+
+function mapUser(row: UserRow): User {
+  return {
+    id: row.id,
+    username: row.username,
+    password: row.password,
+    role: row.role,
+    name: row.name,
+    colegioId: row.colegio_id,
+    colegioNombre: row.colegio_nombre ?? null,
+  };
+}
+
+export async function findUserByUsername(username: string): Promise<User | null> {
+  const row = await queryOne<UserRow>(
+    `SELECT u.id, u.colegio_id, u.username, u.password, u.role, u.name, c.nombre AS colegio_nombre
+     FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
+     WHERE u.username = $1 AND u.activo = TRUE`,
+    [username]
+  );
+  return row ? mapUser(row) : null;
+}
+
+export async function getUserById(id: number): Promise<User | null> {
+  const row = await queryOne<UserRow>(
+    `SELECT u.id, u.colegio_id, u.username, u.password, u.role, u.name, c.nombre AS colegio_nombre
+     FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
+     WHERE u.id = $1 AND u.activo = TRUE`,
+    [id]
+  );
+  return row ? mapUser(row) : null;
+}
+
+export async function listUsers(colegioId?: number): Promise<User[]> {
+  const where = colegioId ? `WHERE u.colegio_id = ${Number(colegioId)}` : '';
+  const rows = await query<UserRow>(
+    `SELECT u.id, u.colegio_id, u.username, '' AS password, u.role, u.name, c.nombre AS colegio_nombre
+     FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
+     ${where}
+     ORDER BY c.id NULLS FIRST, u.id`
+  );
+  return rows.map(mapUser);
+}
+
+export async function createUser(data: {
+  colegioId: number | null; username: string; password: string; role: Role; name: string;
+}): Promise<User> {
+  const row = await queryOne<UserRow>(
+    `INSERT INTO usuarios (colegio_id, username, password, role, name)
+     VALUES ($1, $2, crypt($3, gen_salt('bf', 10)), $4, $5)
+     RETURNING id, colegio_id, username, '' AS password, role, name`,
+    [data.colegioId, data.username, data.password, data.role, data.name]
+  ) as UserRow;
+  return mapUser(row);
+}
+
+export async function updateUser(id: number, data: {
+  name?: string; username?: string; role?: Role; password?: string;
+}): Promise<User | null> {
+  let row;
+  if (data.password) {
+    row = await queryOne<UserRow>(
+      `UPDATE usuarios SET name=$2, username=$3, role=$4, password=crypt($5, gen_salt('bf', 10))
+       WHERE id=$1 RETURNING id, colegio_id, username, '' AS password, role, name`,
+      [id, data.name, data.username, data.role, data.password]
+    );
+  } else {
+    row = await queryOne<UserRow>(
+      `UPDATE usuarios SET name=$2, username=$3, role=$4
+       WHERE id=$1 RETURNING id, colegio_id, username, '' AS password, role, name`,
+      [id, data.name, data.username, data.role]
+    );
+  }
+  if (!row) return null;
+  return await getUserById(row.id);
+}
+
+export async function deleteUser(id: number): Promise<boolean> {
+  const row = await queryOne(`DELETE FROM usuarios WHERE id=$1 RETURNING id`, [id]);
+  return !!row;
+}
+
+export async function usernameExists(username: string, excludeId?: number): Promise<boolean> {
+  const row = await queryOne(
+    `SELECT id FROM usuarios WHERE username=$1 AND ($2::int IS NULL OR id <> $2) LIMIT 1`,
+    [username, excludeId ?? null]
+  );
+  return !!row;
+}
+
+// ---------------- CUENTAS ----------------
+
+export async function listCuentas(colegioId: number): Promise<Cuenta[]> {
+  return query<Cuenta>(
+    `SELECT id, nombre, tipo, descripcion FROM cuentas WHERE colegio_id=$1 ORDER BY tipo DESC, nombre`,
+    [colegioId]
+  );
+}
+
+export async function createCuenta(colegioId: number, data: { nombre: string; tipo: 'ingreso' | 'gasto'; descripcion?: string }): Promise<Cuenta> {
+  return queryOne<Cuenta>(
+    `INSERT INTO cuentas (colegio_id, nombre, tipo, descripcion) VALUES ($1,$2,$3,$4)
+     RETURNING id, nombre, tipo, descripcion`,
+    [colegioId, data.nombre, data.tipo, data.descripcion || '']
+  ) as Promise<Cuenta>;
+}
+
+export async function updateCuenta(colegioId: number, id: number, data: { nombre: string; tipo: 'ingreso' | 'gasto'; descripcion?: string }): Promise<Cuenta | null> {
+  return queryOne<Cuenta>(
+    `UPDATE cuentas SET nombre=$3, tipo=$4, descripcion=$5 WHERE id=$2 AND colegio_id=$1
+     RETURNING id, nombre, tipo, descripcion`,
+    [colegioId, id, data.nombre, data.tipo, data.descripcion || '']
+  );
+}
+
+export async function deleteCuenta(colegioId: number, id: number): Promise<boolean> {
+  // Los movimientos asociados se eliminan en cascada (misma conducta que el demo)
+  const row = await queryOne(`DELETE FROM cuentas WHERE id=$2 AND colegio_id=$1 RETURNING id`, [colegioId, id]);
+  return !!row;
+}
+
+// ---------------- PADRES (+ hijos y descuentos) ----------------
+
+async function attachPadreRelations(padres: Padre[], colegioId: number): Promise<Padre[]> {
+  if (!padres.length) return padres;
+  const ids = padres.map((p) => p.id);
+  const hijosRows = await query<any>(
+    `SELECT id, padre_id, nombre, grado FROM hijos WHERE colegio_id=$1 AND padre_id = ANY($2::int[]) ORDER BY id`,
+    [colegioId, ids]
+  );
+  const descRows = await query<DescuentoPerfil & { padre_id: number }>(
+    `SELECT id, padre_id, nombre, tipo, valor, activo FROM descuentos WHERE padre_id = ANY($1::int[]) ORDER BY id`,
+    [ids]
+  );
+  for (const p of padres) {
+    p.hijos = hijosRows.filter((h) => h.padre_id === p.id).map((h) => ({ id: h.id, nombre: h.nombre, grado: h.grado }));
+    p.descuentos = descRows
+      .filter((d) => d.padre_id === p.id)
+      .map((d) => ({ id: d.id, nombre: d.nombre, tipo: d.tipo, valor: Number(d.valor), activo: d.activo }));
+  }
+  return padres;
+}
+
+function mapPadre(row: any): Padre {
+  return {
+    id: row.id,
+    nombre: row.nombre,
+    cedula: row.cedula,
+    telefono: row.telefono,
+    email: row.email,
+    direccion: row.direccion,
+    hijos: [],
+    descuentos: [],
+    activo: row.activo,
+  };
+}
+
+export async function listPadres(colegioId: number, q?: string): Promise<Padre[]> {
+  const search = q ? `%${q.toLowerCase()}%` : null;
+  const rows = await query<any>(
+    `SELECT id, nombre, cedula, telefono, email, direccion, activo FROM padres
+     WHERE colegio_id=$1
+       AND ($2::text IS NULL OR LOWER(nombre) LIKE $2 OR cedula LIKE $2)
+     ORDER BY nombre`,
+    [colegioId, search]
+  );
+  const padres = rows.map(mapPadre);
+  return attachPadreRelations(padres, colegioId);
+}
+
+export async function getPadre(colegioId: number, id: number): Promise<Padre | null> {
+  const row = await queryOne<any>(
+    `SELECT id, nombre, cedula, telefono, email, direccion, activo FROM padres WHERE id=$2 AND colegio_id=$1`,
+    [colegioId, id]
+  );
+  if (!row) return null;
+  const [padre] = await attachPadreRelations([mapPadre(row)], colegioId);
+  return padre;
+}
+
+async function replaceHijosYDescuentos(client: any, colegioId: number, padreId: number, hijos: Hijo[], descuentos: DescuentoPerfil[]) {
+  await client.query(`DELETE FROM hijos WHERE padre_id=$1`, [padreId]);
+  for (const h of hijos || []) {
+    if (!h?.nombre) continue;
+    await client.query(`INSERT INTO hijos (colegio_id, padre_id, nombre, grado) VALUES ($1,$2,$3,$4)`, [
+      colegioId, padreId, h.nombre, h.grado || '',
+    ]);
+  }
+  await client.query(`DELETE FROM descuentos WHERE padre_id=$1`, [padreId]);
+  for (const d of descuentos || []) {
+    if (!d?.nombre) continue;
+    await client.query(`INSERT INTO descuentos (padre_id, nombre, tipo, valor, activo) VALUES ($1,$2,$3,$4,$5)`, [
+      padreId, d.nombre, d.tipo, d.valor ?? 0, d.activo !== false,
+    ]);
+  }
+}
+
+export async function createPadre(
+  colegioId: number,
+  data: { nombre: string; cedula: string; telefono?: string; email?: string; direccion?: string; hijos?: Hijo[]; descuentos?: DescuentoPerfil[] }
+): Promise<Padre> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `INSERT INTO padres (colegio_id, nombre, cedula, telefono, email, direccion, activo)
+       VALUES ($1,$2,$3,$4,$5,$6,TRUE) RETURNING id, nombre, cedula, telefono, email, direccion, activo`,
+      [colegioId, data.nombre, data.cedula, data.telefono || '', data.email || '', data.direccion || '']
+    );
+    const padreId = res.rows[0].id;
+    await replaceHijosYDescuentos(client, colegioId, padreId, data.hijos || [], data.descuentos || []);
+    await client.query('COMMIT');
+    return (await getPadre(colegioId, padreId))!;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function updatePadre(
+  colegioId: number,
+  id: number,
+  data: { nombre: string; cedula: string; telefono?: string; email?: string; direccion?: string; hijos?: Hijo[]; descuentos?: DescuentoPerfil[] }
+): Promise<Padre | null> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const res = await client.query(
+      `UPDATE padres SET nombre=$3, cedula=$4, telefono=$5, email=$6, direccion=$7
+       WHERE id=$2 AND colegio_id=$1 RETURNING id`,
+      [colegioId, id, data.nombre, data.cedula, data.telefono || '', data.email || '', data.direccion || '']
+    );
+    if (!res.rows.length) {
+      await client.query('ROLLBACK');
+      return null;
+    }
+    await replaceHijosYDescuentos(client, colegioId, id, data.hijos || [], data.descuentos || []);
+    await client.query('COMMIT');
+    return await getPadre(colegioId, id);
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+export async function deletePadre(colegioId: number, id: number): Promise<boolean> {
+  // Cascada: hijos, descuentos, facturas y pagos del padre (igual que el demo)
+  const row = await queryOne(`DELETE FROM padres WHERE id=$2 AND colegio_id=$1 RETURNING id`, [colegioId, id]);
+  return !!row;
+}
+
+export async function padreExistsByCedula(colegioId: number, cedula: string, excludeId?: number): Promise<boolean> {
+  const row = await queryOne(
+    `SELECT id FROM padres WHERE colegio_id=$1 AND cedula=$2 AND ($3::int IS NULL OR id <> $3) LIMIT 1`,
+    [colegioId, cedula, excludeId ?? null]
+  );
+  return !!row;
+}
+
+// ---------------- FACTURAS ----------------
+
+function mapFactura(row: any): Factura {
+  return {
+    id: row.id,
+    padreId: row.padre_id,
+    periodo: String(row.periodo).trim(),
+    monto: Number(row.monto),
+    pagado: Number(row.pagado),
+    fecha: typeof row.fecha === 'string' ? row.fecha.slice(0, 10) : row.fecha,
+    estado: row.estado,
+  };
+}
+
+export async function listFacturas(colegioId: number, opts?: { padreId?: number; estado?: 'pendiente' | 'pagado' | 'parcial' }): Promise<Factura[]> {
+  const conds: string[] = [`colegio_id = $1`];
+  const params: any[] = [colegioId];
+  if (opts?.padreId) {
+    params.push(opts.padreId);
+    conds.push(`padre_id = $${params.length}`);
+  }
+  if (opts?.estado === 'pagado') conds.push(`pagado >= monto`);
+  else if (opts?.estado === 'parcial') conds.push(`pagado > 0 AND pagado < monto`);
+  else if (opts?.estado === 'pendiente') conds.push(`pagado < monto`);
+  const rows = await query<any>(
+    `SELECT * FROM facturas WHERE ${conds.join(' AND ')} ORDER BY periodo ASC, padre_id ASC`,
+    params
+  );
+  return rows.map(mapFactura);
+}
+
+export async function getFacturaById(colegioId: number, id: number): Promise<Factura | null> {
+  const row = await queryOne<any>(`SELECT * FROM facturas WHERE id=$2 AND colegio_id=$1`, [colegioId, id]);
+  return row ? mapFactura(row) : null;
+}
+
+export async function facturaExists(colegioId: number, padreId: number, periodo: string): Promise<boolean> {
+  const row = await queryOne(
+    `SELECT id FROM facturas WHERE colegio_id=$1 AND padre_id=$2 AND periodo=$3 LIMIT 1`,
+    [colegioId, padreId, periodo]
+  );
+  return !!row;
+}
+
+export async function createFactura(colegioId: number, data: {
+  padreId: number; periodo: string; monto: number;
+}): Promise<Factura> {
+  const row = await queryOne<any>(
+    `INSERT INTO facturas (colegio_id, padre_id, periodo, monto, pagado, fecha, estado)
+     VALUES ($1,$2,$3,$4,0,$5,'pendiente') RETURNING *`,
+    [colegioId, data.padreId, data.periodo, data.monto, `${data.periodo}-01`]
+  );
+  return mapFactura(row);
+}
+
+export async function generarFacturasAutomatico(colegioId: number, periodo: string): Promise<{ generadas: number; facturas: Factura[] }> {
+  const nuevas = await query<any>(
+    `INSERT INTO facturas (colegio_id, padre_id, periodo, monto, pagado, fecha, estado)
+     SELECT $1, p.id, $2,
+            (SELECT COUNT(*) FROM hijos h WHERE h.padre_id = p.id) * c.tarifa,
+            0, $2 || '-01', 'pendiente'
+     FROM padres p JOIN colegios c ON c.id = p.colegio_id
+     WHERE p.colegio_id = $1
+       AND NOT EXISTS (SELECT 1 FROM facturas f WHERE f.colegio_id=$1 AND f.padre_id=p.id AND f.periodo=$2)
+     RETURNING *`,
+    [colegioId, periodo]
+  );
+  return { generadas: nuevas.length, facturas: nuevas.map(mapFactura) };
+}
+
+// ---------------- PAGOS ----------------
+
+function mapPago(row: any): Pago {
+  return {
+    id: row.id,
+    numRecibo: row.num_recibo,
+    facturaId: row.factura_id ?? undefined,
+    padreId: row.padre_id,
+    monto: Number(row.monto),
+    fecha: typeof row.fecha === 'string' ? row.fecha.slice(0, 10) : row.fecha,
+    forma: row.forma,
+    ref: row.ref ?? undefined,
+    cardDigits: row.card_digits ?? undefined,
+    obs: row.obs ?? undefined,
+    facturasCubiertas: [],
+    usuario: row.usuario ?? undefined,
+    cargos: row.cargos || [],
+    descuentosPerfil: Number(row.descuentos_perfil || 0),
+    descuentosAdicionales: row.descuentos_adicionales || [],
+    montoBase: Number(row.monto_base || 0),
+  };
+}
+
+async function attachPagosCubiertas(pagos: Pago[], colegioId: number): Promise<Pago[]> {
+  if (!pagos.length) return pagos;
+  const ids = pagos.map((p) => p.id);
+  const cubiertas = await query<any>(
+    `SELECT pf.pago_id, f.id, f.periodo, f.monto, pf.abono
+     FROM pago_facturas pf JOIN facturas f ON f.id = pf.factura_id
+      WHERE f.colegio_id=$1 AND pf.pago_id = ANY($2::int[]) ORDER BY f.periodo`,
+    [colegioId, ids]
+  );
+  for (const p of pagos) {
+    p.facturasCubiertas = cubiertas
+      .filter((c) => c.pago_id === p.id)
+      .map((c) => ({ id: c.id, periodo: String(c.periodo).trim(), monto: Number(c.monto), abono: Number(c.abono) }));
+    if (p.facturasCubiertas.length && p.facturaId === undefined) {
+      p.facturaId = p.facturasCubiertas[0].id;
     }
   }
   return pagos;
 }
 
-// --- In-memory state ---
-let users: User[] = [...INIT_USERS];
-let cuentas: Cuenta[] = [...INIT_CUENTAS];
-let movimientos: Movimiento[] = [];
-let padres: Padre[] = [...INIT_PADRES];
-let facturas: Factura[] = generateFacturas();
-let pagos: Pago[] = generatePagos(facturas);
-let config: Config = { ...INIT_CONFIG };
-
-// Initialize some demo movimientos from pagos
-function initMovimientos() {
-  const movs: Movimiento[] = [];
-  const cuentaMens = cuentas.find(c => c.nombre.includes('Mensualidades')) || cuentas.find(c => c.tipo === 'ingreso');
-  if (cuentaMens) {
-    for (const pago of pagos) {
-      const periodo = pago.fecha.slice(0, 7);
-      movs.push({
-        id: pago.id + 1000000,
-        tipo: 'ingreso',
-        cuentaId: cuentaMens.id,
-        monto: pago.monto,
-        fecha: pago.fecha,
-        descripcion: `Mensualidad · ${pago.numRecibo}`,
-        periodo,
-        usuario: pago.usuario,
-        origen: 'cobro',
-        pagoId: pago.id,
-      });
-    }
+export async function listPagos(colegioId: number, opts?: { padreId?: number; limit?: number }): Promise<Pago[]> {
+  const conds: string[] = [`p.colegio_id = $1`];
+  const params: any[] = [colegioId];
+  if (opts?.padreId) {
+    params.push(opts.padreId);
+    conds.push(`p.padre_id = $${params.length}`);
   }
-  movimientos = movs;
+  let sql = `SELECT p.* FROM pagos p WHERE ${conds.join(' AND ')} ORDER BY p.fecha DESC, p.id DESC`;
+  if (opts?.limit && opts.limit > 0) sql += ` LIMIT ${Math.floor(opts.limit)}`;
+  const rows = await query<any>(sql, params);
+  const pagos = rows.map(mapPago);
+  return attachPagosCubiertas(pagos, colegioId);
 }
-initMovimientos();
 
-// --- Getters and setters ---
-export function getUsers(): User[] { return users; }
-export function setUsers(newUsers: User[]) { users = newUsers; }
+/**
+ * Registra un pago dentro de una transacción:
+ * distribuye el monto entre las facturas pendientes (FIFO), guarda el recibo,
+ * las relaciones pago-factura y genera el movimiento contable de ingreso.
+ */
+export async function registerPago(colegioId: number, data: {
+  padreId: number; monto: number; fecha: string; forma: string;
+  ref?: string; cardDigits?: string; obs?: string; montoBase?: number;
+  descuentoPerfil?: number; cargos?: CargoAdicional[]; descuentosAdicionales?: DescuentoAdicional[];
+}, userName: string): Promise<Pago> {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-export function getCuentas(): Cuenta[] { return cuentas; }
-export function setCuentas(newCuentas: Cuenta[]) { cuentas = newCuentas; }
+    // Cuenta contable de mensualidades
+    const cuentaRes = await client.query(
+      `SELECT id FROM cuentas
+       WHERE colegio_id=$1 AND tipo='ingreso' AND nombre ILIKE '%mensualidad%'
+       ORDER BY id LIMIT 1`,
+      [colegioId]
+    );
+    let cuentaId = cuentaRes.rows[0]?.id;
+    if (!cuentaId) {
+      const alt = await client.query(
+        `SELECT id FROM cuentas WHERE colegio_id=$1 AND tipo='ingreso' ORDER BY id LIMIT 1`,
+        [colegioId]
+      );
+      cuentaId = alt.rows[0]?.id;
+    }
 
-export function getMovimientos(): Movimiento[] { return movimientos; }
-export function setMovimientos(newMovimientos: Movimiento[]) { movimientos = newMovimientos; }
+    // Facturas pendientes del padre (bloqueadas para evitar carreras)
+    let pendientes = (await client.query(
+      `SELECT * FROM facturas
+       WHERE colegio_id=$1 AND padre_id=$2 AND pagado < monto
+       ORDER BY periodo ASC
+       FOR UPDATE`,
+      [colegioId, data.padreId]
+    )).rows;
 
-export function getPadres(): Padre[] { return padres; }
-export function setPadres(newPadres: Padre[]) { padres = newPadres; }
+    // Si no hay pendientes, generar factura del mes actual
+    if (!pendientes.length) {
+      const tarifaRes = await client.query(`SELECT tarifa FROM colegios WHERE id=$1`, [colegioId]);
+      const tarifa = Number(tarifaRes.rows[0]?.tarifa ?? 1500);
+      const hijosRes = await client.query(`SELECT COUNT(*)::int AS cnt FROM hijos WHERE padre_id=$1`, [data.padreId]);
+      const cnt = hijosRes.rows[0]?.cnt ?? 0;
+      const periodoActual = new Date().toISOString().slice(0, 7);
+      const nueva = (await client.query(
+        `INSERT INTO facturas (colegio_id, padre_id, periodo, monto, pagado, fecha, estado)
+         VALUES ($1,$2,$3,$4,0,$5,'pendiente')
+         ON CONFLICT (colegio_id, padre_id, periodo) DO UPDATE SET pagado = EXCLUDED.pagado
+         RETURNING *`,
+        [colegioId, data.padreId, periodoActual, Math.max(cnt, 0) * tarifa, `${periodoActual}-01`]
+      )).rows[0];
+      pendientes = [nueva];
+    }
 
-export function getFacturas(): Factura[] { return facturas; }
-export function setFacturas(newFacturas: Factura[]) { facturas = newFacturas; }
+    // Distribuir el pago entre facturas pendientes
+    let restante = data.monto;
+    const cubiertas: Array<{ id: number; abono: number }> = [];
+    for (const factura of pendientes) {
+      if (restante <= 0) break;
+      const pendiente = Number(factura.monto) - Number(factura.pagado);
+      const abono = Math.min(restante, pendiente);
+      const nuevoPagado = Number(factura.pagado) + abono;
+      const estado = nuevoPagado >= Number(factura.monto) ? 'pagado' : 'parcial';
+      await client.query(`UPDATE facturas SET pagado=$3, estado=$4 WHERE id=$1 AND colegio_id=$2`, [
+        factura.id, colegioId, nuevoPagado, estado,
+      ]);
+      restante -= abono;
+      cubiertas.push({ id: factura.id, abono });
+    }
 
-export function getPagos(): Pago[] { return pagos; }
-export function setPagos(newPagos: Pago[]) { pagos = newPagos; }
+    // Insertar recibo
+    const numRecibo = `REC-${Date.now().toString().slice(-8)}`;
+    const pagoRow = (await client.query(
+      `INSERT INTO pagos (colegio_id, num_recibo, padre_id, monto, monto_base, descuentos_perfil,
+                          fecha, forma, ref, card_digits, obs, usuario, cargos, descuentos_adicionales)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14::jsonb)
+       RETURNING *`,
+      [colegioId, numRecibo, data.padreId, data.monto, data.montoBase || 0, data.descuentoPerfil || 0,
+       data.fecha, data.forma, data.ref || null, data.cardDigits || null, data.obs || null, userName,
+       JSON.stringify((data.cargos || []).filter((c) => c.nombre && c.monto > 0)),
+       JSON.stringify((data.descuentosAdicionales || []).filter((d) => d.nombre && d.valor > 0))]
+    )).rows[0];
 
-export function getConfig(): Config { return config; }
-export function setConfig(newConfig: Config) { config = newConfig; }
+    // Relación pago ↔ factura (muchos a muchos)
+    for (const c of cubiertas) {
+      await client.query(`INSERT INTO pago_facturas (pago_id, factura_id, abono) VALUES ($1,$2,$3)`, [
+        pagoRow.id, c.id, c.abono,
+      ]);
+    }
+
+    // Movimiento contable automático (origen cobro)
+    if (cuentaId) {
+      const periodo = data.fecha.slice(0, 7);
+      await client.query(
+        `INSERT INTO movimientos (colegio_id, tipo, cuenta_id, pago_id, monto, fecha, descripcion, periodo, usuario, origen)
+         VALUES ($1,'ingreso',$2,$3,$4,$5,$6,$7,$8,'cobro')`,
+        [colegioId, cuentaId, pagoRow.id, data.monto, data.fecha,
+         `Mensualidad padre ${data.padreId} · ${numRecibo}`, periodo, userName]
+      );
+    }
+
+    await client.query('COMMIT');
+
+    const pago = mapPago({ ...pagoRow });
+    await attachPagosCubiertas([pago], colegioId);
+    return pago;
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}
+
+// ---------------- MOVIMIENTOS ----------------
+
+function mapMovimiento(row: any): Movimiento {
+  return {
+    id: row.id,
+    tipo: row.tipo,
+    cuentaId: row.cuenta_id,
+    monto: Number(row.monto),
+    fecha: typeof row.fecha === 'string' ? row.fecha.slice(0, 10) : row.fecha,
+    descripcion: row.descripcion ?? undefined,
+    periodo: String(row.periodo).trim(),
+    usuario: row.usuario ?? undefined,
+    origen: row.origen ?? undefined,
+    pagoId: row.pago_id ?? undefined,
+  };
+}
+
+export async function listMovimientos(colegioId: number, opts?: { periodo?: string; tipo?: 'ingreso' | 'gasto'; desdePeriodo?: string }): Promise<Movimiento[]> {
+  const conds: string[] = [`m.colegio_id = $1`];
+  const params: any[] = [colegioId];
+  if (opts?.periodo) {
+    params.push(opts.periodo);
+    conds.push(`m.periodo = $${params.length}`);
+  }
+  if (opts?.desdePeriodo) {
+    params.push(opts.desdePeriodo);
+    conds.push(`m.periodo >= $${params.length}`);
+  }
+  if (opts?.tipo) {
+    params.push(opts.tipo);
+    conds.push(`m.tipo = $${params.length}`);
+  }
+  const rows = await query<any>(
+    `SELECT m.* FROM movimientos m WHERE ${conds.join(' AND ')} ORDER BY m.fecha DESC, m.id DESC`,
+    params
+  );
+  return rows.map(mapMovimiento);
+}
+
+export async function getCuentaTipo(colegioId: number, cuentaId: number): Promise<'ingreso' | 'gasto' | null> {
+  const row = await queryOne<{ tipo: 'ingreso' | 'gasto' }>(
+    `SELECT tipo FROM cuentas WHERE id=$2 AND colegio_id=$1`,
+    [colegioId, cuentaId]
+  );
+  return row?.tipo ?? null;
+}
+
+export async function createMovimiento(colegioId: number, data: {
+  tipo: 'ingreso' | 'gasto'; cuentaId: number; monto: number; fecha: string;
+  descripcion?: string; periodo: string;
+}, userName: string): Promise<Movimiento> {
+  const row = await queryOne<any>(
+    `INSERT INTO movimientos (colegio_id, tipo, cuenta_id, monto, fecha, descripcion, periodo, usuario, origen)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual') RETURNING *`,
+    [colegioId, data.tipo, data.cuentaId, data.monto, data.fecha, data.descripcion || '', data.periodo, userName]
+  );
+  return mapMovimiento(row);
+}
+
+export async function updateMovimiento(colegioId: number, id: number, data: {
+  tipo: 'ingreso' | 'gasto'; cuentaId: number; monto: number; fecha: string; descripcion?: string; periodo: string;
+}): Promise<Movimiento | null> {
+  const row = await queryOne<any>(
+    `UPDATE movimientos SET tipo=$3, cuenta_id=$4, monto=$5, fecha=$6, descripcion=$7, periodo=$8
+     WHERE id=$2 AND colegio_id=$1 AND origen <> 'cobro' RETURNING *`,
+    [colegioId, id, data.tipo, data.cuentaId, data.monto, data.fecha, data.descripcion || '', data.periodo]
+  );
+  return row ? mapMovimiento(row) : null;
+}
+
+export async function deleteMovimiento(colegioId: number, id: number): Promise<{ ok: boolean; motivo?: 'no_encontrado' | 'cobro' }> {
+  const mov = await queryOne<any>(`SELECT origen FROM movimientos WHERE id=$2 AND colegio_id=$1`, [colegioId, id]);
+  if (!mov) return { ok: false, motivo: 'no_encontrado' };
+  if (mov.origen === 'cobro') return { ok: false, motivo: 'cobro' };
+  await query(`DELETE FROM movimientos WHERE id=$2 AND colegio_id=$1`, [colegioId, id]);
+  return { ok: true };
+}
+
+// ---------------- ESTADÍSTICAS / REPORTES ----------------
+
+export async function getTotalDeuda(colegioId: number): Promise<number> {
+  const row = await queryOne<{ total: number | null }>(
+    `SELECT SUM(monto - pagado) AS total FROM facturas WHERE colegio_id=$1`,
+    [colegioId]
+  );
+  return Number(row?.total ?? 0);
+}
+
+export async function getPagosQueAfectanPeriodo(colegioId: number, periodo: string): Promise<Pago[]> {
+  const rows = await query<any>(
+    `SELECT DISTINCT p.* FROM pagos p
+     JOIN pago_facturas pf ON pf.pago_id = p.id
+     JOIN facturas f ON f.id = pf.factura_id
+     WHERE p.colegio_id=$1 AND f.periodo=$2`,
+    [colegioId, periodo]
+  );
+  const pagos = rows.map(mapPago);
+  return attachPagosCubiertas(pagos, colegioId);
+}
+
+export async function getReporteMensual(colegioId: number, year: number, month: number) {
+  const periodo = `${year}-${String(month).padStart(2, '0')}`;
+  const rows = await query<any>(
+    `SELECT m.*, c.nombre AS cuenta_nombre
+     FROM movimientos m LEFT JOIN cuentas c ON c.id = m.cuenta_id
+     WHERE m.colegio_id=$1 AND m.periodo=$2
+     ORDER BY m.fecha ASC, m.id ASC`,
+    [colegioId, periodo]
+  );
+  const movs = rows.map((row) => ({
+    ...mapMovimiento(row),
+    cuentaNombre: row.cuenta_nombre || 'Cuenta eliminada',
+  }));
+  const ingresos = movs.filter((m) => m.tipo === 'ingreso');
+  const gastos = movs.filter((m) => m.tipo === 'gasto');
+  const totalIngresos = ingresos.reduce((s, m) => s + m.monto, 0);
+  const totalGastos = gastos.reduce((s, m) => s + m.monto, 0);
+  return { periodo, ingresos, gastos, totalIngresos, totalGastos, balance: totalIngresos - totalGastos };
+}

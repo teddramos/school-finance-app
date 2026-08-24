@@ -1,13 +1,33 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+interface ColegioOption {
+  id: number;
+  nombre: string;
+}
+
 export default function LoginPage() {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState('superadmin');
+  const [password, setPassword] = useState('super123');
+  const [colegios, setColegios] = useState<ColegioOption[]>([]);
+  const [colegioId, setColegioId] = useState<string>('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // Cargar colegios para el selector; por defecto "Colegio Las Palmas"
+  useEffect(() => {
+    fetch('/api/colegios')
+      .then(res => res.ok ? res.json() : [])
+      .then((data: ColegioOption[]) => {
+        if (!Array.isArray(data) || data.length === 0) return;
+        setColegios(data);
+        const palmas = data.find(c => c.nombre.toLowerCase().includes('palmas'));
+        setColegioId(String(palmas ? palmas.id : data[0].id));
+      })
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,11 +40,11 @@ export default function LoginPage() {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ username, password, colegioId }),
         });
         const data = await res.json();
         if (res.ok) {
-          
+
           // Guardar token en localStorage como fallback para Authorization header
           if (data?.token) {
             try { localStorage.setItem('token', data.token); } catch (e) {}
@@ -78,6 +98,14 @@ export default function LoginPage() {
           {error && <div className="login-err" style={{ display: 'flex' }}>⚠️ {error}</div>}
           <form onSubmit={handleSubmit}>
             <div className="lf">
+              <label>Colegio</label>
+              <select value={colegioId} onChange={e => setColegioId(e.target.value)} required>
+                {colegios.map(c => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+            </div>
+            <div className="lf">
               <label>Usuario</label>
               <input type="text" value={username} onChange={e => setUsername(e.target.value)} placeholder="Ingrese su usuario" required />
             </div>
@@ -85,12 +113,12 @@ export default function LoginPage() {
               <label>Contraseña</label>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Ingrese su contraseña" required />
             </div>
-            <button className="btn-login" type="submit" disabled={loading}>
+            <button className="btn-login" type="submit" disabled={loading || !colegioId}>
               {loading ? <span className="spin"></span> : 'Iniciar Sesión'}
             </button>
           </form>
           <div className="login-demo">
-            <strong>Accesos demo:</strong><br/>👑 admin / admin123 &nbsp;·&nbsp; 📋 asistente / asist123 &nbsp;·&nbsp; 👤 empleado / empl123
+            <strong>Accesos demo:</strong><br/>🛡️ superadmin / super123 &nbsp;·&nbsp; 👑 admin / admin123 &nbsp;·&nbsp; 📋 asistente / asist123
           </div>
         </div>
       </div>

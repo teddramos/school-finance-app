@@ -1,13 +1,16 @@
 // app/api/auth/me/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import { getUsers } from '@/lib/db';
+import { getUserById, getColegioById } from '@/lib/db';
 
 export async function GET(request: Request) {
   try {
-    const cookieStore = await cookies();
-    let token = cookieStore.get('token')?.value;
+    let token: string | undefined;
+    try {
+      const { cookies } = await import('next/headers');
+      const cookieStore = await cookies();
+      token = cookieStore.get('token')?.value;
+    } catch {}
 
     // If no cookie token, try Authorization header (Bearer)
     if (!token) {
@@ -34,15 +37,16 @@ export async function GET(request: Request) {
       );
     }
 
-    const users = getUsers();
-    const user = users.find(u => u.id === decoded.id);
-
+    const user = await getUserById(decoded.id);
     if (!user) {
       return NextResponse.json(
         { error: 'Usuario no encontrado' },
         { status: 404 }
       );
     }
+
+    // El colegio activo es el seleccionado en el login (contexto de trabajo)
+    const colegio = decoded.colegioId ? await getColegioById(decoded.colegioId) : null;
 
     // Devolver datos del usuario sin contraseña
     return NextResponse.json({
@@ -51,6 +55,8 @@ export async function GET(request: Request) {
         username: user.username,
         name: user.name,
         role: user.role,
+        colegioId: colegio?.id ?? user.colegioId,
+        colegioNombre: colegio?.nombre ?? user.colegioNombre ?? null,
       },
     });
   } catch (error) {

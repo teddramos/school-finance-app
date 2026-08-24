@@ -1,26 +1,12 @@
 // app/api/padres/[id]/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import { getPadres, setPadres, getFacturas, setFacturas, getPagos, setPagos } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import {
+  getPadre, updatePadre, deletePadre, padreExistsByCedula,
+} from '@/lib/db';
 
-// Helper para obtener usuario autenticado
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
-}
-
-// Verificar si puede gestionar padres (admin o asistente)
-async function canManagePadres() {
-  const user = await getAuthenticatedUser();
-  return user?.role === 'admin' || user?.role === 'asistente';
+function canManagePadres(role?: string) {
+  return role === 'admin' || role === 'asistente' || role === 'superadmin';
 }
 
 // GET /api/padres/[id] - Obtener un padre por ID
@@ -28,8 +14,8 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const user = await getAuthenticatedUser();
-  if (!user) {
+  const session = await getSession(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -40,8 +26,7 @@ export async function GET(
       return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
     }
 
-    const padres = getPadres();
-    const padre = padres.find(p => p.id === padreId);
+    const padre = await getPadre(session.colegioId!, padreId);
     if (!padre) {
       return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
     }
@@ -58,8 +43,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const can = await canManagePadres();
-  if (!can) {
+  const session = await getSession(request);
+  if (!session || !canManagePadres(session.role)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -80,23 +65,15 @@ export async function PUT(
       );
     }
 
-    const padres = getPadres();
-    const padreIndex = padres.findIndex(p => p.id === padreId);
-    if (padreIndex === -1) {
-      return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
-    }
-
-    // Verificar que la cédula no esté en uso por otro padre
-    const cedulaExists = padres.some(p => p.id !== padreId && p.cedula === cedula);
-    if (cedulaExists) {
+    // Verificar que la cédula no esté en uso por otro padre del colegio
+    if (await padreExistsByCedula(session.colegioId!, cedula.trim(), padreId)) {
       return NextResponse.json(
         { error: 'Ya existe otro padre con esa cédula' },
         { status: 400 }
       );
     }
 
-    const updatedPadre = {
-      ...padres[padreIndex],
+    const updatedPadre = await updatePadre(session.colegioId!, padreId, {
       nombre: nombre.trim(),
       cedula: cedula.trim(),
       telefono: telefono?.trim() || '',
@@ -104,10 +81,11 @@ export async function PUT(
       direccion: direccion?.trim() || '',
       hijos: hijos || [],
       descuentos: descuentos || [],
-    };
+    });
 
-    padres[padreIndex] = updatedPadre;
-    setPadres(padres);
+    if (!updatedPadre) {
+      return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
+    }
 
     return NextResponse.json(updatedPadre);
   } catch (error) {
@@ -121,8 +99,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const can = await canManagePadres();
-  if (!can) {
+  const session = await getSession(request);
+  if (!session || !canManagePadres(session.role)) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -133,26 +111,12 @@ export async function DELETE(
       return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
     }
 
-    const padres = getPadres();
-    const padreExists = padres.some(p => p.id === padreId);
-    if (!padreExists) {
+    const ok = await deletePadre(session.colegioId!, padreId);
+    if (!ok) {
       return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
     }
 
-    // Eliminar padre
-    const filteredPadres = padres.filter(p => p.id !== padreId);
-    setPadres(filteredPadres);
-
-    // Eliminar facturas asociadas
-    const facturas = getFacturas();
-    const filteredFacturas = facturas.filter(f => f.padreId !== padreId);
-    setFacturas(filteredFacturas);
-
-    // Eliminar pagos asociados
-    const pagos = getPagos();
-    const filteredPagos = pagos.filter(p => p.padreId !== padreId);
-    setPagos(filteredPagos);
-
+    // La cascada elimina facturas, pagos, hijos y descuentos asociados
     return NextResponse.json({ message: 'Padre y sus datos eliminados correctamente' });
   } catch (error) {
     console.error('Error DELETE padre:', error);

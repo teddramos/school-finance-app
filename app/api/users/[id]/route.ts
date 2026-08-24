@@ -1,30 +1,27 @@
 // app/api/users/[id]/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
-import { getUsers, setUsers } from '@/lib/db';
+import { getSession } from '@/lib/auth';
+import { listUsers, updateUser, deleteUser, usernameExists } from '@/lib/db';
 
-// Helper para obtener el usuario autenticado y verificar rol admin
-async function getAuthenticatedAdmin() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    if (decoded.role !== 'admin') return null;
-    return decoded;
-  } catch {
-    return null;
-  }
+// Helper: verificar permisos (admin de su colegio o superadmin global)
+async function getAuthorizedAdmin(request: Request) {
+  const session = await getSession(request);
+  if (!session || (session.role !== 'admin' && session.role !== 'superadmin')) return null;
+  return session;
 }
 
-// PUT /api/users/[id] - Actualizar usuario (solo admin)
+async function userInScope(session: any, userId: number): Promise<boolean> {
+  const users = await listUsers(session.role === 'superadmin' ? undefined : session.colegioId);
+  return users.some((u) => u.id === userId);
+}
+
+// PUT /api/users/[id] - Actualizar usuario (solo admin / superadmin)
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await getAuthenticatedAdmin();
-  if (!admin) {
+  const session = await getAuthorizedAdmin(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -49,30 +46,29 @@ export async function PUT(
       return NextResponse.json({ error: 'Rol inválido' }, { status: 400 });
     }
 
-    const users = getUsers();
-    const userIndex = users.findIndex(u => u.id === userId);
-    if (userIndex === -1) {
+    // El usuario debe pertenecer al alcance del admin (su colegio) o ser global (superadmin)
+    if (!(await userInScope(session, userId))) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
     // Si se cambia el username, verificar que no exista ya en otro usuario
-    if (username !== users[userIndex].username && users.some(u => u.username === username)) {
+    if (await usernameExists(username, userId)) {
       return NextResponse.json(
         { error: 'El nombre de usuario ya existe' },
         { status: 400 }
       );
     }
 
-    const updatedUser = {
-      ...users[userIndex],
+    const updatedUser = await updateUser(userId, {
       name,
       username,
       role,
       ...(password ? { password } : {}), // Solo actualizar contraseña si se envió
-    };
+    });
 
-    users[userIndex] = updatedUser;
-    setUsers(users);
+    if (!updatedUser) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
+    }
 
     const { password: _, ...safeUser } = updatedUser;
     return NextResponse.json(safeUser);
@@ -85,13 +81,13 @@ export async function PUT(
   }
 }
 
-// DELETE /api/users/[id] - Eliminar usuario (solo admin)
+// DELETE /api/users/[id] - Eliminar usuario (solo admin / superadmin)
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await getAuthenticatedAdmin();
-  if (!admin) {
+  const session = await getAuthorizedAdmin(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -102,22 +98,19 @@ export async function DELETE(
       return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
     }
 
-    // Evitar que el admin se elimine a sí mismo
-    if (userId === admin.id) {
+    // Evitar que el usuario se elimine a sí mismo
+    if (userId === session.id) {
       return NextResponse.json(
         { error: 'No puedes eliminar tu propio usuario' },
         { status: 400 }
       );
     }
 
-    const users = getUsers();
-    const userExists = users.some(u => u.id === userId);
-    if (!userExists) {
+    if (!(await userInScope(session, userId))) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
-    const filteredUsers = users.filter(u => u.id !== userId);
-    setUsers(filteredUsers);
+    await deleteUser(userId);
 
     return NextResponse.json({ message: 'Usuario eliminado correctamente' });
   } catch (error) {

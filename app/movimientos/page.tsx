@@ -65,7 +65,7 @@ export default function MovimientosPage() {
     fetch('/api/auth/me', { credentials: 'same-origin', headers })
       .then(res => res.ok ? res.json() : null)
       .then(data => {
-        if (data && (data.user.role === 'admin' || data.user.role === 'asistente')) {
+        if (data && (data.user.role === 'admin' || data.user.role === 'asistente' || data.user.role === 'superadmin')) {
           setCanEdit(true);
         } else {
           setCanEdit(false);

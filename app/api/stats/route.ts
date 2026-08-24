@@ -1,28 +1,12 @@
 // app/api/stats/route.ts
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { verifyJWT } from '@/lib/auth';
+import { getSession } from '@/lib/auth';
 import {
-  getMovimientos,
-  getPagos,
-  getFacturas,
-  getPadres,
-  getConfig,
-  getCuentas,
+  listMovimientos,
+  listCuentas,
+  getTotalDeuda,
+  getPagosQueAfectanPeriodo,
 } from '@/lib/db';
-
-// Helper para obtener usuario autenticado
-async function getAuthenticatedUser() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
-}
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -30,8 +14,8 @@ const MESES = [
 ];
 
 export async function GET(request: Request) {
-  const user = await getAuthenticatedUser();
-  if (!user) {
+  const session = await getSession(request);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -48,25 +32,28 @@ export async function GET(request: Request) {
     const mesIndex = month - 1;
     const mesNombre = MESES[mesIndex];
 
+    // Movimientos desde el inicio de la tendencia (6 meses atrás) hasta hoy
+    const primerPeriodo = (() => {
+      const d = new Date(year, month - 1 - 5, 1);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    })();
+    const movimientosRecientes = await listMovimientos(session.colegioId!, { desdePeriodo: primerPeriodo });
+
     // Movimientos del mes
-    const movimientosMes = getMovimientos().filter(m => m.periodo === periodoActual);
+    const movimientosMes = movimientosRecientes.filter((m) => m.periodo === periodoActual);
     const ingresosMes = movimientosMes
-      .filter(m => m.tipo === 'ingreso')
+      .filter((m) => m.tipo === 'ingreso')
       .reduce((sum, m) => sum + m.monto, 0);
     const gastosMes = movimientosMes
-      .filter(m => m.tipo === 'gasto')
+      .filter((m) => m.tipo === 'gasto')
       .reduce((sum, m) => sum + m.monto, 0);
 
     // Cobrado en mensualidades: pagos que afectan facturas del mes actual
-    const pagosMes = getPagos().filter(p => {
-      const facturasCubiertas = p.facturasCubiertas || [];
-      return facturasCubiertas.some((f: any) => f.periodo === periodoActual);
-    });
+    const pagosMes = await getPagosQueAfectanPeriodo(session.colegioId!, periodoActual);
     const cobradoMes = pagosMes.reduce((sum, p) => sum + p.monto, 0);
 
     // Deuda total de todos los padres
-    const facturas = getFacturas();
-    const deudaTotal = facturas.reduce((sum, f) => sum + (f.monto - f.pagado), 0);
+    const deudaTotal = await getTotalDeuda(session.colegioId!);
 
     // Tendencia últimos 6 meses (incluyendo el actual)
     const ultimosMeses = [];
@@ -75,9 +62,9 @@ export async function GET(request: Request) {
       const y = d.getFullYear();
       const m = d.getMonth() + 1;
       const periodo = `${y}-${String(m).padStart(2, '0')}`;
-      const movs = getMovimientos().filter(mv => mv.periodo === periodo);
-      const ingresos = movs.filter(mv => mv.tipo === 'ingreso').reduce((s, mv) => s + mv.monto, 0);
-      const gastos = movs.filter(mv => mv.tipo === 'gasto').reduce((s, mv) => s + mv.monto, 0);
+      const movs = movimientosRecientes.filter((mv) => mv.periodo === periodo);
+      const ingresos = movs.filter((mv) => mv.tipo === 'ingreso').reduce((s, mv) => s + mv.monto, 0);
+      const gastos = movs.filter((mv) => mv.tipo === 'gasto').reduce((s, mv) => s + mv.monto, 0);
       ultimosMeses.push({
         label: `${MESES[m-1].slice(0,3)}/${y.toString().slice(-2)}`,
         ingresos,
@@ -86,7 +73,7 @@ export async function GET(request: Request) {
     }
 
     // Top 5 cuentas del mes (con mayor monto, según ingresos/gastos combinados)
-    const cuentas = getCuentas();
+    const cuentas = await listCuentas(session.colegioId!);
     const cuentasConTotal = cuentas.map(cuenta => {
       const total = movimientosMes
         .filter(m => m.cuentaId === cuenta.id)
@@ -100,9 +87,6 @@ export async function GET(request: Request) {
 
     // Balance
     const balance = ingresosMes - gastosMes;
-
-    // Configuración del colegio para el subtítulo
-    const config = getConfig();
 
     // Estadísticas para los cards
     const stats = {
