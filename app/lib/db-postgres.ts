@@ -24,6 +24,7 @@ pool.on('error', (err) => {
 // Query helper
 export async function query(text: string, params?: any[]) {
   const start = Date.now();
+  console.log('Executing query', { text, params });
   try {
     const result = await pool.query(text, params);
     const duration = Date.now() - start;
