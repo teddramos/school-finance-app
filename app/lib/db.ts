@@ -8,8 +8,23 @@ types.setTypeParser(1082, (v) => v);        // DATE -> 'YYYY-MM-DD'
 types.setTypeParser(1700, (v) => (v === null ? null : parseFloat(v))); // NUMERIC -> number
 types.setTypeParser(20, (v) => (v === null ? null : parseInt(v, 10))); // BIGINT -> number
 
-const caPath = process.env.DB_SSL_CA_PATH || 'ca.pem';
-const caFile = path.isAbsolute(caPath) ? caPath : path.join(process.cwd(), caPath);
+// Resolver certificado CA: 1) env DB_SSL_CA (contenido PEM), 2) archivo en disco, 3) TLS sin verificación
+function resolveCa(): string | null {
+  const fromEnv = process.env.DB_SSL_CA;
+  if (fromEnv && fromEnv.includes('-----BEGIN CERTIFICATE-----') && fromEnv.includes('-----END CERTIFICATE-----')) {
+    // Soporta PEM pegado con saltos reales o con \n literales
+    return fromEnv.replace(/\\n/g, '\n').trim();
+  }
+  try {
+    const caPath = process.env.DB_SSL_CA_PATH || 'ca.pem';
+    const caFile = path.isAbsolute(caPath) ? caPath : path.join(process.cwd(), caPath);
+    return fs.readFileSync(caFile).toString('utf8');
+  } catch {
+    return null;
+  }
+}
+
+const sslCa = resolveCa();
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -20,11 +35,14 @@ const pool = new Pool({
   max: parseInt(process.env.DB_POOL_MAX || '10', 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000,
-  ssl: {
-    ca: fs.readFileSync(caFile).toString('utf8'),
-    rejectUnauthorized: true,
-  },
+  ssl: sslCa
+    ? { ca: sslCa, rejectUnauthorized: true }
+    : { rejectUnauthorized: false },
 });
+
+if (!sslCa) {
+  console.warn('⚠️ DB_SSL_CA no configurada y ca.pem no encontrado: conectando sin verificación de certificado.');
+}
 
 export { pool };
 
