@@ -80,11 +80,13 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const [padresRes, facturasRes, pagosRes, configRes] = await Promise.all([
-        fetch('/api/padres', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/facturas', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/pagos', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/config', { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/padres${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/facturas${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/pagos${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/config${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
       ]);
       if (!padresRes.ok || !facturasRes.ok || !pagosRes.ok || !configRes.ok) throw new Error();
       const padresData = await padresRes.json();
@@ -154,7 +156,9 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(`/api/padres/${id}`, { method: 'DELETE', credentials: 'same-origin', headers: authHeaders });
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/padres/${id}${cidParam}`, { method: 'DELETE', credentials: 'same-origin', headers: authHeaders });
       if (!res.ok) throw new Error();
       loadData();
     } catch (error) {
@@ -224,16 +228,18 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
         hijos: hijosTemp.filter(h => h.nombre.trim()),
         descuentos: descuentosTemp,
       };
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       let res;
       if (editPadre) {
-        res = await fetch(`/api/padres/${editPadre.id}`, {
+        res = await fetch(`/api/padres/${editPadre.id}${cidParam}`, {
           method: 'PUT',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json', ...(typeof window !== 'undefined' && localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}) },
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch('/api/padres', {
+        res = await fetch(`/api/padres${cidParam}`, {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json', ...(typeof window !== 'undefined' && localStorage.getItem('token') ? { Authorization: `Bearer ${localStorage.getItem('token')}` } : {}) },

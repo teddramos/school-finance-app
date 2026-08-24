@@ -56,7 +56,12 @@ export default function MovimientosList({
 
   const loadCuentas = async () => {
     try {
-      const res = await fetch('/api/cuentas', { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/cuentas${cidParam}`, { credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al cargar cuentas');
       const data = await res.json();
       setCuentas(data);
@@ -69,8 +74,13 @@ export default function MovimientosList({
     setLoading(true);
     setError(null);
     try {
-      const url = `/api/movimientos?year=${selectedYear}&month=${selectedMonth + 1}&tipo=${tipoFilter}`;
-      const res = await fetch(url, { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `&colegioId=${cid}` : '';
+      const url = `/api/movimientos?year=${selectedYear}&month=${selectedMonth + 1}&tipo=${tipoFilter}${cidParam}`;
+      const res = await fetch(url, { credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al cargar movimientos');
       const data = await res.json();
       setMovimientos(data);

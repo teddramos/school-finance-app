@@ -70,7 +70,10 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const res = await fetch(`/api/padres?q=${encodeURIComponent(busqueda)}`, { credentials: 'same-origin', headers: authHeaders });
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `&colegioId=${cid}` : '';
+      const url = `/api/padres?q=${encodeURIComponent(busqueda)}${cidParam}`;
+      const res = await fetch(url, { credentials: 'same-origin', headers: authHeaders });
       if (!res.ok) throw new Error('Error al buscar');
       const data = await res.json();
       setResultados(data);
@@ -86,10 +89,12 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
     setPadreSeleccionado(padre);
     setCargandoDeudas(true);
     try {
-      // Obtener facturas pendientes
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
-      const facturasRes = await fetch(`/api/facturas?padreId=${padre.id}&estado=pending`, { credentials: 'same-origin', headers: authHeaders });
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `&colegioId=${cid}` : '';
+      // Obtener facturas pendientes
+      const facturasRes = await fetch(`/api/facturas?padreId=${padre.id}&estado=pending${cidParam}`, { credentials: 'same-origin', headers: authHeaders });
       if (!facturasRes.ok) throw new Error();
       const facturasData: Factura[] = await facturasRes.json();
       const pendientes = facturasData.filter(f => f.pagado < f.monto);
@@ -98,7 +103,7 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
       setTotalDeuda(total);
 
       // Obtener último pago
-      const pagosRes = await fetch(`/api/pagos?padreId=${padre.id}&limit=1`, { credentials: 'same-origin', headers: authHeaders });
+      const pagosRes = await fetch(`/api/pagos?padreId=${padre.id}${cidParam}`, { credentials: 'same-origin', headers: authHeaders });
       if (pagosRes.ok) {
         const pagosData = await pagosRes.json();
         setUltimoPago(pagosData[0] || null);

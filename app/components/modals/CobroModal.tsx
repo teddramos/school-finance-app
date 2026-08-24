@@ -74,9 +74,11 @@ export default function CobroModal({ isOpen, padreId, onClose, onSuccess, onPaym
     const fetchData = async () => {
       setCargandoDatos(true);
       try {
+        const cid = localStorage.getItem('selectedColegioId');
+        const cidParam = cid ? `?colegioId=${cid}` : '';
         const [padreRes, configRes] = await Promise.all([
-          fetch(`/api/padres/${padreId}`),
-          fetch('/api/config')
+          fetch(`/api/padres/${padreId}${cidParam}`),
+          fetch(`/api/config${cidParam}`)
         ]);
         if (!padreRes.ok || !configRes.ok) throw new Error('Error al cargar datos');
         const padreData = await padreRes.json();
@@ -158,6 +160,7 @@ export default function CobroModal({ isOpen, padreId, onClose, onSuccess, onPaym
 
     setLoading(true);
     try {
+      const cid = localStorage.getItem('selectedColegioId');
       const pagoPayload = {
         padreId: padre.id,
         monto: totalAPagar,
@@ -170,6 +173,7 @@ export default function CobroModal({ isOpen, padreId, onClose, onSuccess, onPaym
         descuentoPerfil,
         cargos: cargos.filter(c => c.nombre && c.monto > 0),
         descuentosAdicionales: descuentosAdicionales.filter(d => d.nombre && d.valor > 0),
+        ...(cid ? { colegioId: parseInt(cid) } : {}),
       };
 
       const res = await fetch('/api/pagos', {
@@ -177,18 +181,15 @@ export default function CobroModal({ isOpen, padreId, onClose, onSuccess, onPaym
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(pagoPayload),
       });
-
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.error || 'Error al registrar pago');
-      }
+        if (!res.ok) { const errData = await res.json(); throw new Error(errData.error || 'Error al registrar pago'); }
 
       const pagoRegistrado = await res.json();
 
       // Cargar datos completos del padre y configuración para el recibo
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const [padreData, configData] = await Promise.all([
-        fetch(`/api/padres/${padre.id}`).then(r => r.json()),
-        fetch('/api/config').then(r => r.json())
+        fetch(`/api/padres/${padre.id}${cidParam}`).then(r => r.json()),
+        fetch(`/api/config${cidParam}`).then(r => r.json())
       ]);
 
       const pagoParaRecibo = {

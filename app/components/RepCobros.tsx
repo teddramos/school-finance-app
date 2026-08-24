@@ -79,11 +79,13 @@ export default function RepCobros({ refreshTrigger = 0 }: RepCobrosProps) {
     try {
       const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const [padresRes, facturasRes, pagosRes, configRes] = await Promise.all([
-        fetch('/api/padres', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/facturas', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/pagos', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/config', { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/padres${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/facturas${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/pagos${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
+        fetch(`/api/config${cidParam}`, { credentials: 'same-origin', headers: authHeaders }),
       ]);
       if (!padresRes.ok || !facturasRes.ok || !pagosRes.ok || !configRes.ok) throw new Error();
       const padresData = await padresRes.json();

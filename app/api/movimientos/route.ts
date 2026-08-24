@@ -1,152 +1,111 @@
-// app/api/movimientos/route.ts
+// app/api/movimientos/route.ts - Updated for PostgreSQL
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import { getMovimientos, setMovimientos, getCuentas } from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 
-// Helper para obtener usuario autenticado
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
-  if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
+  let token = cookieStore.get('token')?.value;
+  if (!token) {
+    try {
+      const hdr = headers();
+      const auth = hdr.get('authorization') || hdr.get('Authorization');
+      if (auth && auth.startsWith('Bearer ')) token = auth.slice(7);
+    } catch (e) {}
   }
+  if (!token) return null;
+  try { return await verifyJWT(token); } catch { return null; }
 }
 
-// Verificar si puede editar (admin o asistente)
 async function canEdit() {
   const user = await getAuthenticatedUser();
-  return user?.role === 'admin' || user?.role === 'asistente';
+  return user?.role === 'superadmin' || user?.role === 'admin' || user?.role === 'asistente';
 }
 
-// GET /api/movimientos?year=2025&month=3&tipo=todos
+function getColegioId(user: any, url: URL): string | null {
+  const sp = url.searchParams;
+  let cid = sp.get('colegioId');
+  if (!cid && user.role === 'superadmin' && !user.colegioId) cid = '1';
+  if (!cid && user.colegioId) cid = String(user.colegioId);
+  return cid;
+}
+
+// GET /api/movimientos?year=2025&month=3&colegioId=1
 export async function GET(request: Request) {
   const user = await getAuthenticatedUser();
-  if (!user) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const cid = getColegioId(user, new URL(request.url));
+  if (!cid) return NextResponse.json({ error: 'Colegio no especificado' }, { status: 400 });
+
+  const { searchParams } = new URL(request.url);
+  const year = parseInt(searchParams.get('year') || '');
+  const month = parseInt(searchParams.get('month') || '');
+  const tipo = searchParams.get('tipo') || 'todos';
+
+  if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
+    return NextResponse.json({ error: 'Parámetros inválidos' }, { status: 400 });
   }
 
-  try {
-    const { searchParams } = new URL(request.url);
-    const year = parseInt(searchParams.get('year') || '');
-    const month = parseInt(searchParams.get('month') || '');
-    const tipo = searchParams.get('tipo') || 'todos';
+  const periodo = `${year}-${String(month).padStart(2, '0')}`;
+  const params: any[] = [parseInt(cid), periodo];
+  let sql = 'SELECT * FROM movimientos WHERE colegio_id = $1 AND periodo = $2';
+  if (tipo !== 'todos') { sql += ' AND tipo = $3'; params.push(tipo); }
+  sql += ' ORDER BY fecha DESC, id DESC';
 
-    if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
-      return NextResponse.json({ error: 'Parámetros year y month inválidos' }, { status: 400 });
-    }
-
-    const periodo = `${year}-${String(month).padStart(2, '0')}`;
-    let movimientos = getMovimientos().filter(m => m.periodo === periodo);
-
-    if (tipo !== 'todos') {
-      if (tipo !== 'ingreso' && tipo !== 'gasto') {
-        return NextResponse.json({ error: 'Tipo inválido' }, { status: 400 });
-      }
-      movimientos = movimientos.filter(m => m.tipo === tipo);
-    }
-
-    // Ordenar por fecha descendente
-    movimientos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-
-    return NextResponse.json(movimientos);
-  } catch (error) {
-    console.error('Error GET movimientos:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+  const result = await query(sql, params);
+  return NextResponse.json(result.rows.map((r: any) => ({
+    id: r.id, tipo: r.tipo, cuentaId: r.cuenta_id, monto: parseFloat(r.monto),
+    fecha: r.fecha, descripcion: r.descripcion, periodo: r.periodo,
+    usuario: r.usuario, origen: r.origen, pagoId: r.pago_id,
+  })));
 }
 
-// POST /api/movimientos - Crear movimiento (admin o asistente)
+// POST /api/movimientos
 export async function POST(request: Request) {
   const can = await canEdit();
-  if (!can) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (!can) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+
+  const body = await request.json();
+  const { tipo, cuentaId, monto, fecha, descripcion, periodo, colegioId: bodyCid } = body;
+  if (!tipo || !cuentaId || !monto || !fecha || !periodo) {
+    return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
   }
 
-  try {
-    const body = await request.json();
-    const { tipo, cuentaId, monto, fecha, descripcion, periodo } = body;
+  const user = await getAuthenticatedUser();
+  let cid = user?.colegioId;
+  if (bodyCid && user?.role === 'superadmin') cid = bodyCid;
+  if (!cid) return NextResponse.json({ error: 'Colegio no especificado' }, { status: 400 });
 
-    if (!tipo || !cuentaId || !monto || !fecha || !periodo) {
-      return NextResponse.json(
-        { error: 'Faltan campos requeridos: tipo, cuentaId, monto, fecha, periodo' },
-        { status: 400 }
-      );
-    }
+  const cuentaRes = await query('SELECT id FROM cuentas WHERE id = $1 AND colegio_id = $2 AND tipo = $3', [cuentaId, cid, tipo]);
+  if (cuentaRes.rows.length === 0) return NextResponse.json({ error: 'Cuenta no existe o tipo incorrecto' }, { status: 400 });
 
-    if (tipo !== 'ingreso' && tipo !== 'gasto') {
-      return NextResponse.json({ error: 'Tipo debe ser ingreso o gasto' }, { status: 400 });
-    }
+  const result = await query(
+    `INSERT INTO movimientos (colegio_id, tipo, cuenta_id, monto, fecha, descripcion, periodo, usuario, origen)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'manual') RETURNING *`,
+    [cid, tipo, cuentaId, parseFloat(monto), fecha, descripcion?.trim() || '', periodo, user?.name || 'Sistema']
+  );
 
-    const montoNum = parseFloat(monto);
-    if (isNaN(montoNum) || montoNum <= 0) {
-      return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
-    }
-
-    // Verificar que la cuenta exista y coincida el tipo
-    const cuentas = getCuentas();
-    const cuenta = cuentas.find(c => c.id === cuentaId);
-    if (!cuenta) {
-      return NextResponse.json({ error: 'Cuenta no existe' }, { status: 400 });
-    }
-    if (cuenta.tipo !== tipo) {
-      return NextResponse.json({ error: `La cuenta no es de tipo ${tipo}` }, { status: 400 });
-    }
-
-    const user = await getAuthenticatedUser();
-    const nuevoMovimiento = {
-      id: Date.now(),
-      tipo,
-      cuentaId,
-      monto: montoNum,
-      fecha,
-      descripcion: descripcion?.trim() || '',
-      periodo,
-      usuario: user?.name || 'Sistema',
-      origen: 'manual',
-    };
-
-    const movimientos = getMovimientos();
-    setMovimientos([...movimientos, nuevoMovimiento]);
-
-    return NextResponse.json(nuevoMovimiento, { status: 201 });
-  } catch (error) {
-    console.error('Error POST movimientos:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+  const r = result.rows[0];
+  return NextResponse.json({
+    id: r.id, tipo: r.tipo, cuentaId: r.cuenta_id, monto: parseFloat(r.monto),
+    fecha: r.fecha, descripcion: r.descripcion, periodo: r.periodo, usuario: r.usuario, origen: r.origen,
+  }, { status: 201 });
 }
 
 // DELETE /api/movimientos?id=123
 export async function DELETE(request: Request) {
   const can = await canEdit();
-  if (!can) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-  }
+  if (!can) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
 
-  try {
-    const { searchParams } = new URL(request.url);
-    const id = parseInt(searchParams.get('id') || '');
-    if (isNaN(id)) {
-      return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
-    }
+  const { searchParams } = new URL(request.url);
+  const id = parseInt(searchParams.get('id') || '');
+  if (isNaN(id)) return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
 
-    const movimientos = getMovimientos();
-    const mov = movimientos.find(m => m.id === id);
-    if (!mov) {
-      return NextResponse.json({ error: 'Movimiento no encontrado' }, { status: 404 });
-    }
-    if (mov.origen === 'cobro') {
-      return NextResponse.json({ error: 'No se puede eliminar un movimiento generado por cobro' }, { status: 400 });
-    }
+  const movRes = await query('SELECT origen FROM movimientos WHERE id = $1', [id]);
+  if (movRes.rows.length === 0) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+  if (movRes.rows[0].origen === 'cobro') return NextResponse.json({ error: 'No se puede eliminar' }, { status: 400 });
 
-    setMovimientos(movimientos.filter(m => m.id !== id));
-    return NextResponse.json({ ok: true });
-  } catch (error) {
-    console.error('Error DELETE movimiento:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+  await query('DELETE FROM movimientos WHERE id = $1', [id]);
+  return NextResponse.json({ ok: true });
 }

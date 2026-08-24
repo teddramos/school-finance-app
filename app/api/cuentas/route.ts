@@ -1,72 +1,101 @@
-// app/api/cuentas/route.ts
+// app/api/cuentas/route.ts - Updated for PostgreSQL
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import { getCuentas, setCuentas } from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 
-// Helper para obtener usuario autenticado
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
+  let token = cookieStore.get('token')?.value;
+  if (!token) {
+    try {
+      const hdr = headers();
+      const auth = hdr.get('authorization') || hdr.get('Authorization');
+      if (auth && auth.startsWith('Bearer ')) token = auth.slice(7);
+    } catch (e) {}
+  }
   if (!token) return null;
   try {
-    const decoded = await verifyJWT(token);
-    return decoded;
+    return await verifyJWT(token);
   } catch {
     return null;
   }
 }
 
-// Helper para verificar si es admin
 async function isAdmin() {
   const user = await getAuthenticatedUser();
-  return user?.role === 'admin';
+  return user?.role === 'superadmin' || user?.role === 'admin';
 }
 
-// GET /api/cuentas - Listar todas las cuentas (autenticado)
-export async function GET() {
+// GET /api/cuentas
+export async function GET(request: Request) {
   const user = await getAuthenticatedUser();
   if (!user) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
-  const cuentas = getCuentas();
-  return NextResponse.json(cuentas);
+  try {
+    const { searchParams } = new URL(request.url);
+    const colegioId = searchParams.get('colegioId');
+
+    let result;
+    if (colegioId) {
+      result = await query(
+        'SELECT id, nombre, tipo, descripcion, activo FROM cuentas WHERE colegio_id = $1 ORDER BY tipo, nombre',
+        [colegioId]
+      );
+    } else if (user.colegioId) {
+      result = await query(
+        'SELECT id, nombre, tipo, descripcion, activo FROM cuentas WHERE colegio_id = $1 ORDER BY tipo, nombre',
+        [user.colegioId]
+      );
+    } else {
+      return NextResponse.json([]);
+    }
+
+    return NextResponse.json(result.rows.map((r: any) => ({
+      id: r.id, nombre: r.nombre, tipo: r.tipo, descripcion: r.descripcion, activo: r.activo,
+    })));
+  } catch (error) {
+    console.error('Error GET cuentas:', error);
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+  }
 }
 
-// POST /api/cuentas - Crear nueva cuenta (solo admin)
+// POST /api/cuentas
 export async function POST(request: Request) {
   const admin = await isAdmin();
   if (!admin) {
-    return NextResponse.json({ error: 'No autorizado, se requieren permisos de administrador' }, { status: 401 });
+    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
   try {
     const body = await request.json();
-    const { nombre, tipo, descripcion } = body;
+    const { nombre, tipo, descripcion, colegioId } = body;
 
     if (!nombre || !tipo || (tipo !== 'ingreso' && tipo !== 'gasto')) {
-      return NextResponse.json(
-        { error: 'Campos requeridos: nombre, tipo (ingreso/gasto)' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Campos requeridos: nombre, tipo (ingreso/gasto)' }, { status: 400 });
     }
 
-    const cuentas = getCuentas();
-    const nuevaCuenta = {
-      id: Date.now(),
-      nombre: nombre.trim(),
-      tipo,
-      descripcion: descripcion?.trim() || '',
-    };
+    const user = await getAuthenticatedUser();
+    const targetColegioId = user?.role === 'superadmin' ? (colegioId || user?.colegioId) : user?.colegioId;
 
-    setCuentas([...cuentas, nuevaCuenta]);
-    return NextResponse.json(nuevaCuenta, { status: 201 });
-  } catch (error) {
-    console.error('Error al crear cuenta:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
+    if (!targetColegioId) {
+      return NextResponse.json({ error: 'Colegio no especificado' }, { status: 400 });
+    }
+
+    const result = await query(
+      `INSERT INTO cuentas (colegio_id, nombre, tipo, descripcion) VALUES ($1, $2, $3, $4) RETURNING *`,
+      [targetColegioId, nombre.trim(), tipo, descripcion?.trim() || '']
     );
+
+    const r = result.rows[0];
+    return NextResponse.json({ id: r.id, nombre: r.nombre, tipo: r.tipo, descripcion: r.descripcion }, { status: 201 });
+  } catch (error: any) {
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'Ya existe una cuenta con ese nombre' }, { status: 400 });
+    }
+    console.error('Error POST cuenta:', error);
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 }

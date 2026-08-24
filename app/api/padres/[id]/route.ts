@@ -1,161 +1,74 @@
-// app/api/padres/[id]/route.ts
+// app/api/padres/[id]/route.ts - Updated for PostgreSQL
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import { getPadres, setPadres, getFacturas, setFacturas, getPagos, setPagos } from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 
-// Helper para obtener usuario autenticado
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
+  let token = cookieStore.get('token')?.value;
+  if (!token) {
+    try { const hdr = headers(); const auth = hdr.get('authorization') || hdr.get('Authorization'); if (auth?.startsWith('Bearer ')) token = auth.slice(7); } catch (e) {}
+  }
   if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
+  try { return await verifyJWT(token); } catch { return null; }
 }
 
-// Verificar si puede gestionar padres (admin o asistente)
-async function canManagePadres() {
+async function canManage() {
   const user = await getAuthenticatedUser();
-  return user?.role === 'admin' || user?.role === 'asistente';
+  return user?.role === 'superadmin' || user?.role === 'admin' || user?.role === 'asistente';
 }
 
-// GET /api/padres/[id] - Obtener un padre por ID
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
+async function buildPadre(padreRow: any): Promise<any> {
+  const hijosResult = await query('SELECT h.id, h.nombre, h.grado FROM hijos h JOIN padres_hijos ph ON ph.hijo_id = h.id WHERE ph.padre_id = $1 AND h.activo = true', [padreRow.id]);
+  const descuentosResult = await query('SELECT d.id, d.nombre, d.tipo, d.valor, d.activo FROM descuentos_perfil d JOIN padres_descuentos pd ON pd.descuento_id = d.id WHERE pd.padre_id = $1 AND d.activo = true', [padreRow.id]);
+  return {
+    id: padreRow.id, nombre: padreRow.nombre, cedula: padreRow.cedula, telefono: padreRow.telefono,
+    email: padreRow.email, direccion: padreRow.direccion, activo: padreRow.activo,
+    hijos: hijosResult.rows.map((h: any) => ({ id: h.id, nombre: h.nombre, grado: h.grado })),
+    descuentos: descuentosResult.rows.map((d: any) => ({ id: d.id, nombre: d.nombre, tipo: d.tipo, valor: parseFloat(d.valor), activo: d.activo })),
+  };
+}
+
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthenticatedUser();
-  if (!user) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-  }
-
-  try {
-    const { id } = await params;
-    const padreId = parseInt(id);
-    if (isNaN(padreId)) {
-      return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
-    }
-
-    const padres = getPadres();
-    const padre = padres.find(p => p.id === padreId);
-    if (!padre) {
-      return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
-    }
-
-    return NextResponse.json(padre);
-  } catch (error) {
-    console.error('Error GET padre:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const { id } = await params;
+  const padreId = parseInt(id);
+  if (isNaN(padreId)) return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
+  const result = await query('SELECT * FROM padres WHERE id = $1', [padreId]);
+  if (result.rows.length === 0) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+  return NextResponse.json(await buildPadre(result.rows[0]));
 }
 
-// PUT /api/padres/[id] - Actualizar un padre (admin o asistente)
-export async function PUT(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const can = await canManagePadres();
-  if (!can) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-  }
-
-  try {
-    const { id } = await params;
-    const padreId = parseInt(id);
-    if (isNaN(padreId)) {
-      return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
-    }
-
-    const body = await request.json();
-    const { nombre, cedula, telefono, email, direccion, hijos, descuentos } = body;
-
-    if (!nombre || !cedula) {
-      return NextResponse.json(
-        { error: 'Nombre y cédula son requeridos' },
-        { status: 400 }
-      );
-    }
-
-    const padres = getPadres();
-    const padreIndex = padres.findIndex(p => p.id === padreId);
-    if (padreIndex === -1) {
-      return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
-    }
-
-    // Verificar que la cédula no esté en uso por otro padre
-    const cedulaExists = padres.some(p => p.id !== padreId && p.cedula === cedula);
-    if (cedulaExists) {
-      return NextResponse.json(
-        { error: 'Ya existe otro padre con esa cédula' },
-        { status: 400 }
-      );
-    }
-
-    const updatedPadre = {
-      ...padres[padreIndex],
-      nombre: nombre.trim(),
-      cedula: cedula.trim(),
-      telefono: telefono?.trim() || '',
-      email: email?.trim() || '',
-      direccion: direccion?.trim() || '',
-      hijos: hijos || [],
-      descuentos: descuentos || [],
-    };
-
-    padres[padreIndex] = updatedPadre;
-    setPadres(padres);
-
-    return NextResponse.json(updatedPadre);
-  } catch (error) {
-    console.error('Error PUT padre:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const can = await canManage();
+  if (!can) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const { id } = await params;
+  const padreId = parseInt(id);
+  if (isNaN(padreId)) return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
+  const body = await request.json();
+  const { nombre, cedula, telefono, email, direccion, hijos, descuentos, activo } = body;
+  if (!nombre || !cedula) return NextResponse.json({ error: 'Nombre y cédula requeridos' }, { status: 400 });
+  const existing = await query('SELECT id FROM padres WHERE id != $1 AND cedula = $2', [padreId, cedula.trim()]);
+  if (existing.rows.length > 0) return NextResponse.json({ error: 'Ya existe otro padre con esa cédula' }, { status: 400 });
+  const result = await query(`UPDATE padres SET nombre=$1, cedula=$2, telefono=$3, email=$4, direccion=$5, activo=$6, updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING *`,
+    [nombre.trim(), cedula.trim(), telefono?.trim() || '', email?.trim() || '', direccion?.trim() || '', activo !== false, padreId]);
+  if (result.rows.length === 0) return NextResponse.json({ error: 'No encontrado' }, { status: 404 });
+  await query('DELETE FROM padres_hijos WHERE padre_id = $1', [padreId]);
+  if (hijos?.length) { for (const h of hijos) { let hiId = h.id; if (!hiId) { const newHi = await query('INSERT INTO hijos (nombre, grado) VALUES ($1, $2) RETURNING id', [h.nombre.trim(), h.grado.trim()]); hiId = newHi.rows[0].id; } await query('INSERT INTO padres_hijos (padre_id, hijo_id) VALUES ($1, $2)', [padreId, hiId]); } }
+  await query('DELETE FROM padres_descuentos WHERE padre_id = $1', [padreId]);
+  if (descuentos?.length) { for (const d of descuentos) { let desId = d.id; if (!desId) { const newDes = await query('INSERT INTO descuentos_perfil (nombre, tipo, valor) VALUES ($1, $2, $3) RETURNING id', [d.nombre.trim(), d.tipo, d.valor]); desId = newDes.rows[0].id; } await query('INSERT INTO padres_descuentos (padre_id, descuento_id) VALUES ($1, $2)', [padreId, desId]); } }
+  return NextResponse.json(await buildPadre(result.rows[0]));
 }
 
-// DELETE /api/padres/[id] - Eliminar un padre y sus datos relacionados (admin o asistente)
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const can = await canManagePadres();
-  if (!can) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-  }
-
-  try {
-    const { id } = await params;
-    const padreId = parseInt(id);
-    if (isNaN(padreId)) {
-      return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
-    }
-
-    const padres = getPadres();
-    const padreExists = padres.some(p => p.id === padreId);
-    if (!padreExists) {
-      return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
-    }
-
-    // Eliminar padre
-    const filteredPadres = padres.filter(p => p.id !== padreId);
-    setPadres(filteredPadres);
-
-    // Eliminar facturas asociadas
-    const facturas = getFacturas();
-    const filteredFacturas = facturas.filter(f => f.padreId !== padreId);
-    setFacturas(filteredFacturas);
-
-    // Eliminar pagos asociados
-    const pagos = getPagos();
-    const filteredPagos = pagos.filter(p => p.padreId !== padreId);
-    setPagos(filteredPagos);
-
-    return NextResponse.json({ message: 'Padre y sus datos eliminados correctamente' });
-  } catch (error) {
-    console.error('Error DELETE padre:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const can = await canManage();
+  if (!can) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const { id } = await params;
+  const padreId = parseInt(id);
+  if (isNaN(padreId)) return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
+  await query('UPDATE padres SET activo = false WHERE id = $1', [padreId]);
+  return NextResponse.json({ message: 'Padre desactivado' });
 }
+

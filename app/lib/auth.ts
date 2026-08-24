@@ -10,8 +10,9 @@ if (!secret) {
 export interface JWTPayload {
   id: number;
   username: string;
-  role: string;
+  role: 'superadmin' | 'admin' | 'asistente' | 'empleado';
   name: string;
+  colegioId?: number | null;
 }
 
 export function signJWT(payload: JWTPayload): Promise<string> {

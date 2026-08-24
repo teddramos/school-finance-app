@@ -57,6 +57,11 @@ export default function CuentaModal({ isOpen, cuenta, onClose, onSave }: CuentaM
     setSubmitting(true);
     setError('');
     try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const payload = {
         nombre: formData.nombre.trim(),
         tipo: formData.tipo,
@@ -64,17 +69,17 @@ export default function CuentaModal({ isOpen, cuenta, onClose, onSave }: CuentaM
       };
       let res;
       if (cuenta) {
-        res = await fetch(`/api/cuentas/${cuenta.id}`, {
+        res = await fetch(`/api/cuentas/${cuenta.id}${cidParam}`, {
           method: 'PUT',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch('/api/cuentas', {
+        res = await fetch(`/api/cuentas${cidParam}`, {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload),
         });
       }

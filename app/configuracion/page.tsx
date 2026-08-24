@@ -51,7 +51,12 @@ export default function ConfiguracionPage() {
 
   const loadConfig = async () => {
     try {
-      const res = await fetch('/api/config', { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/config${cidParam}`, { credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al cargar configuración');
       const data = await res.json();
       setConfig(data);
@@ -73,10 +78,15 @@ export default function ConfiguracionPage() {
     setError(null);
     setSuccess(false);
     try {
-      const res = await fetch('/api/config', {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/config${cidParam}`, {
         method: 'PUT',
         credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(config)
       });
       if (!res.ok) throw new Error('Error al guardar configuración');

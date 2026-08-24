@@ -1,11 +1,10 @@
 // app/api/auth/login/route.ts
 import { NextResponse } from 'next/server';
-import { getUsers } from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 import { signJWT } from '@/lib/auth';
 
 export async function POST(request: Request) {
   try {
-    // Soportar tanto JSON como form data (formularios tradicionales)
     const contentType = request.headers.get('content-type') || '';
     let username: string | undefined;
     let password: string | undefined;
@@ -27,28 +26,40 @@ export async function POST(request: Request) {
       );
     }
 
-    const users = getUsers();
-    const user = users.find(
-      (u) => u.username === username && u.password === password
+    // Buscar usuario en PostgreSQL
+    const result = await query(
+      'SELECT id, username, password, name, role, colegio_id FROM usuarios WHERE username = $1 AND activo = true',
+      [username]
     );
 
-    if (!user) {
+    if (result.rows.length === 0) {
       return NextResponse.json(
         { error: 'Credenciales inválidas' },
         { status: 401 }
       );
     }
 
-    // Crear token JWT (sin incluir password)
+    const user = result.rows[0];
+
+    // Simple password comparison (in production, use bcrypt)
+    if (user.password !== password) {
+      return NextResponse.json(
+        { error: 'Credenciales inválidas' },
+        { status: 401 }
+      );
+    }
+
+    // Crear token JWT con escuela
     const tokenPayload = {
       id: user.id,
       username: user.username,
       role: user.role,
       name: user.name,
+      colegioId: user.colegio_id,
     };
     const token = await signJWT(tokenPayload);
 
-    // Si la petición fue JSON (fetch), devolver JSON con token
+    // Para JSON (fetch), devolver JSON con token
     if (contentType.includes('application/json')) {
       const response = NextResponse.json({
         user: {
@@ -56,11 +67,11 @@ export async function POST(request: Request) {
           name: user.name,
           role: user.role,
           username: user.username,
+          colegioId: user.colegio_id,
         },
         token,
       });
 
-      // Establecer cookie HttpOnly para el token
       response.cookies.set('token', token, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
@@ -72,7 +83,7 @@ export async function POST(request: Request) {
       return response;
     }
 
-    // Para formularios tradicionales, redirigir al dashboard y establecer cookie
+    // Para formularios tradicionales
     const redirectRes = NextResponse.redirect(new URL('/dashboard', request.url), 303);
     redirectRes.cookies.set('token', token, {
       httpOnly: true,

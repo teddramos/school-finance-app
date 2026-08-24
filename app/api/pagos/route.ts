@@ -1,216 +1,107 @@
-// app/api/pagos/route.ts
+// app/api/pagos/route.ts - Updated for PostgreSQL
 import { NextResponse } from 'next/server';
 import { cookies, headers } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import { getPagos, setPagos, getFacturas, setFacturas, getPadres, getConfig, getCuentas, getMovimientos, setMovimientos } from '@/lib/db';
-import type { Factura, Movimiento } from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 
-// Helper para obtener usuario autenticado
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
   let token = cookieStore.get('token')?.value;
-  if (!token) {
-    try {
-      const hdr = headers();
-      const auth = hdr.get('authorization') || hdr.get('Authorization');
-      if (auth && auth.startsWith('Bearer ')) token = auth.slice(7);
-    } catch (e) { }
-  }
+  if (!token) { try { const hdr = headers(); const auth = hdr.get('authorization') || hdr.get('Authorization'); if (auth?.startsWith('Bearer ')) token = auth.slice(7); } catch (e) {} }
   if (!token) return null;
-  try {
-    const decoded = await verifyJWT(token);
-    return decoded;
-  } catch {
-    return null;
-  }
+  try { return await verifyJWT(token); } catch { return null; }
 }
 
-// Verificar si puede registrar pagos (admin o asistente)
 async function canRegisterPayment() {
   const user = await getAuthenticatedUser();
-  return user?.role === 'admin' || user?.role === 'asistente';
+  return user?.role === 'superadmin' || user?.role === 'admin' || user?.role === 'asistente';
 }
 
-// GET /api/pagos?padreId=123&limit=1
+function getColegioId(user: any): number | null {
+  if (user.role === 'superadmin' && !user.colegioId) return 1;
+  return user.colegioId || null;
+}
+
+// GET /api/pagos?colegioId=1&padreId=101
 export async function GET(request: Request) {
   const user = await getAuthenticatedUser();
-  if (!user) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
-  }
-
-  try {
-    const { searchParams } = new URL(request.url);
-    const padreId = searchParams.get('padreId');
-    const limit = searchParams.get('limit');
-
-    let pagos = getPagos();
-
-    if (padreId) {
-      const id = parseInt(padreId);
-      if (isNaN(id)) {
-        return NextResponse.json({ error: 'padreId inválido' }, { status: 400 });
-      }
-      pagos = pagos.filter(p => p.padreId === id);
-    }
-
-    // Ordenar por fecha descendente
-    pagos.sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
-
-    if (limit) {
-      const lim = parseInt(limit);
-      if (!isNaN(lim) && lim > 0) {
-        pagos = pagos.slice(0, lim);
-      }
-    }
-
-    return NextResponse.json(pagos);
-  } catch (error) {
-    console.error('Error GET pagos:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
-  }
+  if (!user) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const { searchParams } = new URL(request.url);
+  let cid = searchParams.get('colegioId');
+  if (!cid) { const c = getColegioId(user); if (c) cid = String(c); }
+  if (!cid) return NextResponse.json({ error: 'Colegio no especificado' }, { status: 400 });
+  const padreId = searchParams.get('padreId');
+  const limit = searchParams.get('limit');
+  const params: any[] = [parseInt(cid)];
+  let sql = 'SELECT * FROM pagos WHERE colegio_id = $1';
+  if (padreId) { sql += ' AND padre_id = $2'; params.push(parseInt(padreId)); }
+  sql += ' ORDER BY fecha DESC, id DESC';
+  if (limit) sql += ' LIMIT ' + parseInt(limit);
+  const result = await query(sql, params);
+  return NextResponse.json(result.rows.map((r: any) => ({
+    id: r.id, numRecibo: r.num_recibo, padreId: r.padre_id, monto: parseFloat(r.monto), fecha: r.fecha,
+    forma: r.forma, ref: r.ref, cardDigits: r.card_digits, obs: r.obs,
+    facturasCubiertas: [], usuario: r.usuario, cargos: r.cargos || [], descuentosPerfil: parseFloat(r.descuento_perfil || 0),
+    descuentosAdicionales: r.descuentos_adicionales || [], montoBase: parseFloat(r.monto_base || 0),
+  })));
 }
-
-// POST /api/pagos - Registrar un pago
+// POST /api/pagos
 export async function POST(request: Request) {
   const can = await canRegisterPayment();
-  if (!can) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (!can) return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const body = await request.json();
+  const { padreId, monto, fecha, forma, referencia, cardDigits, observacion, montoBase, descuentoPerfil, cargos, descuentosAdicionales, colegioId: bodyCid } = body;
+  if (!padreId || !monto || !fecha || !forma) return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
+  const user = await getAuthenticatedUser();
+  let cid = user?.colegioId;
+  if (bodyCid && user?.role === 'superadmin') cid = bodyCid;
+  if (!cid) return NextResponse.json({ error: 'Colegio no especificado' }, { status: 400 });
+  const montoNum = parseFloat(monto);
+  // Ensure pending invoice exists
+  const facturasResult = await query('SELECT id FROM facturas WHERE colegio_id = $1 AND padre_id = $2 AND estado != $3', [cid, padreId, 'pagado']);
+  if (facturasResult.rows.length === 0) {
+    const periodoActual = fecha.slice(0, 7);
+    const configResult = await query('SELECT tarifa FROM colegios WHERE id = $1', [cid]);
+    const tarifa = parseFloat(configResult.rows[0]?.tarifa || 1500);
+    const hijosCount = await query('SELECT COUNT(*) as cnt FROM hijos h JOIN padres_hijos ph ON ph.hijo_id = h.id WHERE ph.padre_id = $1 AND h.activo = true', [padreId]);
+    const montoFactura = parseInt(hijosCount.rows[0]?.cnt || 0) * tarifa;
+    await query('INSERT INTO facturas (colegio_id, padre_id, periodo, monto, pagado, fecha, estado) VALUES ($1, $2, $3, $4, 0, $5, $6)',
+      [cid, padreId, periodoActual, montoFactura, `${periodoActual}-01`, 'pendiente']);
   }
-
-  try {
-    const body = await request.json();
-    const {
-      padreId,
-      monto,
-      fecha,
-      forma,
-      referencia,
-      cardDigits,
-      observacion,
-      montoBase,
-      descuentoPerfil,
-      cargos = [],
-      descuentosAdicionales = [],
-    } = body;
-
-    if (!padreId || !monto || !fecha || !forma) {
-      return NextResponse.json(
-        { error: 'Faltan campos requeridos: padreId, monto, fecha, forma' },
-        { status: 400 }
-      );
-    }
-
-    const montoNum = parseFloat(monto);
-    if (isNaN(montoNum) || montoNum <= 0) {
-      return NextResponse.json({ error: 'Monto inválido' }, { status: 400 });
-    }
-
-    // Obtener deudas pendientes del padre (facturas con pagado < monto)
-    let facturas = getFacturas();
-    let facturasPendientes = facturas
-      .filter(f => f.padreId === padreId && f.pagado < f.monto)
-      .sort((a, b) => a.periodo.localeCompare(b.periodo));
-
-    if (facturasPendientes.length === 0) {
-      // Generar factura para el mes actual si no existe
-      const config = getConfig();
-      const tarifa = config.tarifa || 1500;
-      const padres = getPadres();
-      const padre = padres.find(p => p.id === padreId);
-      if (!padre) {
-        return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
-      }
-      const periodoActual = new Date().toISOString().slice(0, 7); // YYYY-MM
-      const nuevaFactura: Factura = {
-        id: Date.now(),
-        padreId: padreId as unknown as number,
-        periodo: periodoActual,
-        monto: padre.hijos.length * tarifa,
-        pagado: 0,
-        fecha: `${periodoActual}-01`,
-        estado: 'pendiente',
-      };
-      facturas.push(nuevaFactura);
-      setFacturas(facturas);
-      facturasPendientes = [nuevaFactura];
-    }
-
-    // Distribuir el pago entre las facturas pendientes
-    let restante = montoNum;
-    const facturasCubiertas = [];
-    for (const factura of facturasPendientes) {
-      if (restante <= 0) break;
-      const pendiente = factura.monto - factura.pagado;
-      const abono = Math.min(restante, pendiente);
-      factura.pagado += abono;
-      factura.estado = factura.pagado >= factura.monto ? 'pagado' : 'parcial';
-      restante -= abono;
-      facturasCubiertas.push({
-        id: factura.id,
-        periodo: factura.periodo,
-        monto: factura.monto,
-        abono,
-      });
-    }
-
-    // Actualizar facturas en la base de datos
-    setFacturas(facturas);
-
-    // Generar número de recibo
-    const numRecibo = `REC-${Date.now().toString().slice(-8)}`;
-    const user = await getAuthenticatedUser();
-
-    const nuevoPago = {
-      id: Date.now(),
-      numRecibo,
-      facturaId: facturasCubiertas[0]?.id,
-      padreId,
-      monto: montoNum,
-      fecha,
-      forma,
-      ref: referencia,
-      cardDigits,
-      obs: observacion,
-      facturasCubiertas,
-      usuario: user?.name || 'Sistema',
-      cargos: cargos.filter((c: any) => c.nombre && c.monto > 0),
-      descuentosPerfil: descuentoPerfil || 0,
-      descuentosAdicionales: descuentosAdicionales.filter((d: any) => d.nombre && d.valor > 0),
-      montoBase: montoBase || 0,
-    };
-
-    const pagos = getPagos();
-    setPagos([...pagos, nuevoPago]);
-
-    // Registrar movimiento contable (ingreso)
-    const cuentas = getCuentas();
-    const cuentaMensualidad = cuentas.find(c => c.nombre.toLowerCase().includes('mensualidad')) ||
-      cuentas.find(c => c.tipo === 'ingreso');
-    if (cuentaMensualidad) {
-      const periodo = new Date(fecha).toISOString().slice(0, 7);
-      const nuevoMovimiento: Movimiento = {
-        id: Date.now() + 1000000, // asegurar ID único
-        tipo: 'ingreso',
-        cuentaId: cuentaMensualidad.id,
-        monto: montoNum,
-        fecha,
-        descripcion: `Mensualidad ${padreId ? `padre ${padreId}` : ''} · ${numRecibo}`,
-        periodo,
-        usuario: user?.name || 'Sistema',
-        origen: 'cobro',
-        pagoId: nuevoPago.id,
-      };
-      const movimientos = getMovimientos();
-      setMovimientos([...movimientos, nuevoMovimiento]);
-    }
-    const padre = getPadres().find(p => p.id === padreId);
-    const config = getConfig();
-    const pagoResponse = { ...nuevoPago, padre, config };
-    return NextResponse.json(pagoResponse, { status: 201 });
-
-    // return NextResponse.json(nuevoPago, { status: 201 });
-  } catch (error) {
-    console.error('Error POST pago:', error);
-    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
+  const facturas = await query('SELECT id, periodo, monto, pagado FROM facturas WHERE colegio_id = $1 AND padre_id = $2 AND estado != $3 ORDER BY periodo', [cid, padreId, 'pagado']);
+  let restante = montoNum;
+  const facturasCubiertas = [];
+  for (const f of facturas.rows) {
+    if (restante <= 0) break;
+    const pendiente = parseFloat(f.monto) - parseFloat(f.pagado);
+    const abono = Math.min(restante, pendiente);
+    await query("UPDATE facturas SET pagado = pagado + $1, estado = CASE WHEN pagado + $1 >= monto THEN 'pagado' ELSE 'parcial' END, updated_at = CURRENT_TIMESTAMP WHERE id = $2",
+      [abono, f.id]);
+    facturasCubiertas.push({ id: f.id, periodo: f.periodo, monto: parseFloat(f.monto), abono });
+    restante -= abono;
   }
+  const numRecibo = `REC-${Date.now().toString().slice(-8)}`;
+  const pagoResult = await query(
+    `INSERT INTO pagos (colegio_id, num_recibo, padre_id, monto, fecha, forma, ref, card_digits, obs, usuario, monto_base, descuento_perfil, cargos, descuentos_adicionales)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+    [cid, numRecibo, padreId, montoNum, fecha, forma, referencia || '', cardDigits || '', observacion || '', user?.name || 'Sistema',
+     montoBase || montoNum, descuentoPerfil || 0, JSON.stringify(cargos || []), JSON.stringify(descuentosAdicionales || [])]
+  );
+  const pago = pagoResult.rows[0];
+  for (const fc of facturasCubiertas) {
+    await query('INSERT INTO facturas_cubiertas (pago_id, factura_id, abono) VALUES ($1, $2, $3)', [pago.id, fc.id, fc.abono]);
+  }
+  const cuentasResult = await query('SELECT id FROM cuentas WHERE colegio_id = $1 AND tipo = $2 AND activo = true LIMIT 1', [cid, 'ingreso']);
+  if (cuentasResult.rows.length > 0) {
+    const cuentaId = cuentasResult.rows[0].id;
+    const periodo = fecha.slice(0, 7);
+    await query('INSERT INTO movimientos (colegio_id, tipo, cuenta_id, monto, fecha, descripcion, periodo, usuario, origen, pago_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+      [cid, 'ingreso', cuentaId, montoNum, fecha, `Cobro · ${numRecibo}`, periodo, user?.name || 'Sistema', 'cobro', pago.id]);
+  }
+  return NextResponse.json({
+    id: pago.id, numRecibo: pago.num_recibo, padreId: pago.padre_id, monto: parseFloat(pago.monto),
+    fecha: pago.fecha, forma: pago.forma, ref: pago.ref, obs: pago.obs,
+    facturasCubiertas, usuario: pago.usuario, cargos: pago.cargos || [], descuentosPerfil: parseFloat(pago.descuento_perfil || 0),
+    descuentosAdicionales: pago.descuentos_adicionales || [], montoBase: parseFloat(pago.monto_base || 0),
+  }, { status: 201 });
 }

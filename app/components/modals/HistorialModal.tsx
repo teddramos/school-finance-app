@@ -48,9 +48,11 @@ export default function HistorialModal({ isOpen, padreId, padreNombre, onClose }
     setLoading(true);
     setError(null);
     try {
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `&colegioId=${cid}` : '';
       const [facturasRes, pagosRes] = await Promise.all([
-        fetch(`/api/facturas?padreId=${padreId}`),
-        fetch(`/api/pagos?padreId=${padreId}`)
+        fetch(`/api/facturas?padreId=${padreId}${cidParam}`),
+        fetch(`/api/pagos?padreId=${padreId}${cidParam}`)
       ]);
       if (!facturasRes.ok || !pagosRes.ok) throw new Error('Error al cargar historial');
       const facturasData = await facturasRes.json();

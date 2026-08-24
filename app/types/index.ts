@@ -1,11 +1,24 @@
-// types/index.ts
+// types/index.ts - Type definitions
 
 export interface User {
   id: number;
   username: string;
   password: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  role: 'superadmin' | 'admin' | 'asistente' | 'empleado';
   name: string;
+  colegioId?: number | null;
+}
+
+export interface Colegio {
+  id: number;
+  nombre: string;
+  rif: string;
+  direccion: string;
+  telefono: string;
+  email: string;
+  director: string;
+  tarifa: number;
+  activo: boolean;
 }
 
 export interface Cuenta {
@@ -109,4 +122,5 @@ export interface JWTPayload {
   username: string;
   role: string;
   name: string;
+  colegioId?: number | null;
 }

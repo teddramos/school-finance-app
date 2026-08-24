@@ -52,7 +52,12 @@ export default function CuentasPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/cuentas', { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/cuentas${cidParam}`, { credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al cargar cuentas');
       const data = await res.json();
       setCuentas(data);
@@ -101,6 +106,11 @@ export default function CuentasPage() {
     }
     setSubmitting(true);
     try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const payload = {
         nombre: formData.nombre.trim(),
         tipo: formData.tipo,
@@ -108,17 +118,17 @@ export default function CuentasPage() {
       };
       let res;
       if (editCuenta) {
-        res = await fetch(`/api/cuentas/${editCuenta.id}`, {
+        res = await fetch(`/api/cuentas/${editCuenta.id}${cidParam}`, {
           method: 'PUT',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload)
         });
       } else {
-        res = await fetch('/api/cuentas', {
+        res = await fetch(`/api/cuentas${cidParam}`, {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload)
         });
       }
@@ -135,7 +145,12 @@ export default function CuentasPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('¿Eliminar esta cuenta? Se eliminarán también los movimientos asociados.')) return;
     try {
-      const res = await fetch(`/api/cuentas/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/cuentas/${id}${cidParam}`, { method: 'DELETE', credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al eliminar');
       loadCuentas();
     } catch (err: any) {

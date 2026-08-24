@@ -1,38 +1,43 @@
 // components/Sidebar.tsx
 'use client';
-
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 
 interface User {
   id: number;
   name: string;
   username: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  role: 'superadmin' | 'admin' | 'asistente' | 'empleado';
+  colegioId?: number | null;
+  config?: { nombre?: string } | null;
+}
+
+interface Colegio {
+  id: number;
+  nombre: string;
 }
 
 interface SidebarProps {
   user: User;
   onLogout: () => void;
+  colegios?: Colegio[];
+  selectedColegioId?: number;
+  onColegioChange?: (id: number) => void;
 }
 
-export default function Sidebar({ user, onLogout }: SidebarProps) {
+export default function Sidebar({ user, onLogout, colegios = [], selectedColegioId, onColegioChange }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-
   const isActive = (path: string) => pathname === path;
-
   const handleNavigation = (path: string) => {
     router.push(path);
-    // Cerrar sidebar en móvil (si está abierto)
     if (window.innerWidth < 768) {
       document.getElementById('sidebar')?.classList.remove('open');
       document.getElementById('sb-overlay')?.classList.remove('show');
     }
   };
-
+  const isSuperadmin = user.role === 'superadmin';
   const isAdmin = user.role === 'admin';
-  const canEdit = user.role === 'admin' || user.role === 'asistente';
+  const canViewConfig = user.role === 'superadmin' || user.role === 'admin';
 
   return (
     <>
@@ -44,92 +49,79 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
         <div className="sb-header">
           <div className="sb-logo-icon">🌿</div>
           <div>
-            <div className="sb-logo-text">Las Palmas</div>
+            <div className="sb-logo-text">{user.config?.nombre || 'Colegio'}</div>
             <div className="sb-logo-sub">Sistema Financiero</div>
           </div>
         </div>
+
+        {isSuperadmin && colegios.length > 0 && (
+          <div className="sb-school-selector">
+            <label>Seleccionar Colegio:</label>
+            <select value={selectedColegioId || ''} onChange={e => onColegioChange?.(parseInt(e.target.value))} className="sb-school-select">
+              <option value="">-- Seleccionar --</option>
+              {colegios.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+        )}
+
         <nav className="sb-nav">
-          <div className="sb-section">Principal</div>
-          <button
-            className={`sb-link ${isActive('/dashboard') ? 'active' : ''}`}
-            onClick={() => handleNavigation('/dashboard')}
-          >
-            <span className="sb-icon">📊</span>Dashboard
+          <div className="sb-section-label">PRINCIPAL</div>
+          <button className={`sb-link ${isActive('/dashboard') ? 'active' : ''}`} onClick={() => handleNavigation('/dashboard')}>
+            <span className="sb-icon">📊</span> Dashboard
+          </button>
+          <button className={`sb-link ${isActive('/cobros') ? 'active' : ''}`} onClick={() => handleNavigation('/cobros')}>
+            <span className="sb-icon">💵</span> Cobros
+          </button>
+          <button className={`sb-link ${isActive('/movimientos') ? 'active' : ''}`} onClick={() => handleNavigation('/movimientos')}>
+            <span className="sb-icon">📋</span> Movimientos
           </button>
 
-          {canEdit && (
+          {canViewConfig && (
             <>
-              <div className="sb-section">Cobros</div>
-              <button
-                className={`sb-link ${isActive('/cobros') ? 'active' : ''}`}
-                onClick={() => handleNavigation('/cobros')}
-              >
-                <span className="sb-icon">💳</span>Cobros / Caja
+              <div className="sb-section-label">CONFIGURACIÓN</div>
+              <button className={`sb-link ${isActive('/cuentas') ? 'active' : ''}`} onClick={() => handleNavigation('/cuentas')}>
+                <span className="sb-icon">🏷️</span> Cuentas
+              </button>
+              {isSuperadmin && (
+                <button className={`sb-link ${isActive('/colegios') ? 'active' : ''}`} onClick={() => handleNavigation('/colegios')}>
+                  <span className="sb-icon">🏫</span> Colegios
+                </button>
+              )}
+              {isAdmin && (
+                <button className={`sb-link ${isActive('/configuracion') ? 'active' : ''}`} onClick={() => handleNavigation('/configuracion')}>
+                  <span className="sb-icon">⚙️</span> Configuración
+                </button>
+              )}
+            </>
+          )}
+
+          {(isAdmin || isSuperadmin) && (
+            <>
+              <div className="sb-section-label">ADMINISTRACIÓN</div>
+              <button className={`sb-link ${isActive('/usuarios') ? 'active' : ''}`} onClick={() => handleNavigation('/usuarios')}>
+                <span className="sb-icon">👥</span> Usuarios
               </button>
             </>
           )}
 
-          {canEdit && (
-            <>
-              <div className="sb-section">Finanzas</div>
-              <button
-                className={`sb-link ${isActive('/movimientos') ? 'active' : ''}`}
-                onClick={() => handleNavigation('/movimientos')}
-              >
-                <span className="sb-icon">💰</span>Movimientos
-              </button>
-            </>
-          )}
-
-          {isAdmin && (
-            <button
-              className={`sb-link ${isActive('/cuentas') ? 'active' : ''}`}
-              onClick={() => handleNavigation('/cuentas')}
-            >
-              <span className="sb-icon">📋</span>Cuentas
-            </button>
-          )}
-
-          <button
-            className={`sb-link ${isActive('/reportes') ? 'active' : ''}`}
-            onClick={() => handleNavigation('/reportes')}
-          >
-            <span className="sb-icon">📄</span>Reportes
-          </button>
-
-          {isAdmin && (
-            <>
-              <div className="sb-section">Administración</div>
-              <button
-                className={`sb-link ${isActive('/configuracion') ? 'active' : ''}`}
-                onClick={() => handleNavigation('/configuracion')}
-              >
-                <span className="sb-icon">⚙️</span>Configuración
-              </button>
-              <button
-                className={`sb-link ${isActive('/usuarios') ? 'active' : ''}`}
-                onClick={() => handleNavigation('/usuarios')}
-              >
-                <span className="sb-icon">👥</span>Usuarios
-              </button>
-            </>
-          )}
-        </nav>
-        <div className="sb-footer">
-          <div className="sb-user">
-            <div className="sb-avatar">{user.name.charAt(0).toUpperCase()}</div>
-            <div style={{ overflow: 'hidden', flex: 1 }}>
-              <div className="sb-uname">{user.name}</div>
-              <div className="sb-urole">
-                {user.role === 'admin' ? 'Administrador' : user.role === 'asistente' ? 'Asistente' : 'Empleado'}
+          <div className="sb-spacer" />
+          <div className="sb-user-info">
+            <div className="sb-user-avatar">{user.name?.charAt(0).toUpperCase()}</div>
+            <div className="sb-user-details">
+              <div className="sb-user-name">{user.name}</div>
+              <div className="sb-user-role">
+                {user.role === 'superadmin' ? '👑 Super Admin' :
+                 user.role === 'admin' ? '🔧 Administrador' :
+                 user.role === 'asistente' ? '📋 Asistente' : '👤 Empleado'}
               </div>
             </div>
           </div>
           <button className="sb-logout" onClick={onLogout}>
-            ← Cerrar Sesión
+            <span className="sb-icon">🚪</span> Cerrar Sesión
           </button>
-        </div>
+        </nav>
       </aside>
     </>
   );
 }
+

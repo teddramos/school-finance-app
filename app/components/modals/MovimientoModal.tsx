@@ -44,7 +44,12 @@ export default function MovimientoModal({ isOpen, movimiento, onClose, onSave }:
     if (isOpen) {
       const fetchCuentas = async () => {
         try {
-          const res = await fetch('/api/cuentas', { credentials: 'same-origin' });
+          const token = localStorage.getItem('token');
+          const headers: Record<string, string> = {};
+          if (token) headers['Authorization'] = `Bearer ${token}`;
+          const cid = localStorage.getItem('selectedColegioId');
+          const cidParam = cid ? `?colegioId=${cid}` : '';
+          const res = await fetch(`/api/cuentas${cidParam}`, { credentials: 'same-origin', headers });
           if (!res.ok) throw new Error('Error al cargar cuentas');
           const data = await res.json();
           setCuentas(data);
@@ -91,27 +96,32 @@ export default function MovimientoModal({ isOpen, movimiento, onClose, onSave }:
     setSubmitting(true);
     setError('');
     try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const payload = {
         tipo: formData.tipo,
         cuentaId: parseInt(formData.cuentaId),
         monto: parseFloat(formData.monto),
         fecha: formData.fecha,
         descripcion: formData.descripcion,
-        periodo: formData.fecha.slice(0, 7), // YYYY-MM
+        periodo: formData.fecha.slice(0, 7),
       };
       let res;
       if (movimiento) {
-        res = await fetch(`/api/movimientos/${movimiento.id}`, {
+        res = await fetch(`/api/movimientos/${movimiento.id}${cidParam}`, {
           method: 'PUT',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload),
         });
       } else {
-        res = await fetch('/api/movimientos', {
+        res = await fetch(`/api/movimientos${cidParam}`, {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload),
         });
       }

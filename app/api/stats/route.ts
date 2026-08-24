@@ -1,33 +1,28 @@
-// app/api/stats/route.ts
+// app/api/stats/route.ts - Updated for PostgreSQL
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import {
-  getMovimientos,
-  getPagos,
-  getFacturas,
-  getPadres,
-  getConfig,
-  getCuentas,
-} from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 
-// Helper para obtener usuario autenticado
 async function getAuthenticatedUser() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
+  let token = cookieStore.get('token')?.value;
+  if (!token) {
+    try {
+      const hdr = headers();
+      const auth = hdr.get('authorization') || hdr.get('Authorization');
+      if (auth && auth.startsWith('Bearer ')) token = auth.slice(7);
+    } catch (e) {}
+  }
   if (!token) return null;
   try {
-    const decoded = await verifyJWT(token);
-    return decoded;
+    return await verifyJWT(token);
   } catch {
     return null;
   }
 }
 
-const MESES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
-];
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 
 export async function GET(request: Request) {
   const user = await getAuthenticatedUser();
@@ -39,89 +34,94 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     let year = parseInt(searchParams.get('year') || '');
     let month = parseInt(searchParams.get('month') || '');
+    let colegioId = searchParams.get('colegioId');
 
     const now = new Date();
     if (isNaN(year)) year = now.getFullYear();
     if (isNaN(month) || month < 1 || month > 12) month = now.getMonth() + 1;
 
+    // Resolver colegioId
+    if (!colegioId && user.role === 'superadmin' && !user.colegioId) {
+      colegioId = '1';
+    }
+    if (!colegioId && user.colegioId) {
+      colegioId = String(user.colegioId);
+    }
+    if (!colegioId) {
+      return NextResponse.json({ error: 'Colegio no especificado' }, { status: 400 });
+    }
+
+    const cid = parseInt(colegioId);
     const periodoActual = `${year}-${String(month).padStart(2, '0')}`;
-    const mesIndex = month - 1;
-    const mesNombre = MESES[mesIndex];
+    const mesNombre = MESES[month - 1];
 
     // Movimientos del mes
-    const movimientosMes = getMovimientos().filter(m => m.periodo === periodoActual);
-    const ingresosMes = movimientosMes
-      .filter(m => m.tipo === 'ingreso')
-      .reduce((sum, m) => sum + m.monto, 0);
-    const gastosMes = movimientosMes
-      .filter(m => m.tipo === 'gasto')
-      .reduce((sum, m) => sum + m.monto, 0);
+    const movResult = await query(
+      'SELECT tipo, monto FROM movimientos WHERE colegio_id = $1 AND periodo = $2',
+      [cid, periodoActual]
+    );
+    const ingresosMes = (movResult.rows as any[]).filter((m: any) => m.tipo === 'ingreso').reduce((s: number, m: any) => s + parseFloat(m.monto), 0);
+    const gastosMes = (movResult.rows as any[]).filter((m: any) => m.tipo === 'gasto').reduce((s: number, m: any) => s + parseFloat(m.monto), 0);
 
-    // Cobrado en mensualidades: pagos que afectan facturas del mes actual
-    const pagosMes = getPagos().filter(p => {
-      const facturasCubiertas = p.facturasCubiertas || [];
-      return facturasCubiertas.some((f: any) => f.periodo === periodoActual);
-    });
-    const cobradoMes = pagosMes.reduce((sum, p) => sum + p.monto, 0);
+    // Pagos del mes
+    const pagosResult = await query(
+      `SELECT p.monto, p.facturas_cubiertas FROM pagos p
+       WHERE p.colegio_id = $1 AND p.fecha LIKE $2`,
+      [cid, `${periodoActual}%`]
+    );
+    const cobradoMes = (pagosResult.rows as any[]).reduce((s: number, p: any) => {
+      const covered = p.facturas_cubiertas || [];
+      const monthCovered = covered.filter((f: any) => f.periodo === periodoActual);
+      if (monthCovered.length > 0) {
+        return s + monthCovered.reduce((a: number, f: any) => a + f.abono, 0);
+      }
+      return s;
+    }, 0);
 
-    // Deuda total de todos los padres
-    const facturas = getFacturas();
-    const deudaTotal = facturas.reduce((sum, f) => sum + (f.monto - f.pagado), 0);
+    // Deuda total
+    const deudaResult = await query(
+      'SELECT COALESCE(SUM(monto - pagado), 0) as deuda FROM facturas WHERE colegio_id = $1 AND estado != $2',
+      [cid, 'pagado']
+    );
+    const deudaTotal = parseFloat(deudaResult.rows[0]?.deuda || 0);
 
-    // Tendencia últimos 6 meses (incluyendo el actual)
+    // Tendencia últimos 6 meses
     const ultimosMeses = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(year, month - 1 - i, 1);
       const y = d.getFullYear();
       const m = d.getMonth() + 1;
       const periodo = `${y}-${String(m).padStart(2, '0')}`;
-      const movs = getMovimientos().filter(mv => mv.periodo === periodo);
-      const ingresos = movs.filter(mv => mv.tipo === 'ingreso').reduce((s, mv) => s + mv.monto, 0);
-      const gastos = movs.filter(mv => mv.tipo === 'gasto').reduce((s, mv) => s + mv.monto, 0);
-      ultimosMeses.push({
-        label: `${MESES[m-1].slice(0,3)}/${y.toString().slice(-2)}`,
-        ingresos,
-        gastos,
-      });
+      const movs = await query(
+        'SELECT tipo, monto FROM movimientos WHERE colegio_id = $1 AND periodo = $2',
+        [cid, periodo]
+      );
+      const ingresos = ((movs as any).rows as any[]).filter((m: any) => m.tipo === 'ingreso').reduce((s: number, m: any) => s + parseFloat(m.monto), 0);
+      const gastos = ((movs as any).rows as any[]).filter((m: any) => m.tipo === 'gasto').reduce((s: number, m: any) => s + parseFloat(m.monto), 0);
+      ultimosMeses.push({ label: `${MESES[m-1].slice(0,3)}/${y.toString().slice(-2)}`, ingresos, gastos });
     }
 
-    // Top 5 cuentas del mes (con mayor monto, según ingresos/gastos combinados)
-    const cuentas = getCuentas();
-    const cuentasConTotal = cuentas.map(cuenta => {
-      const total = movimientosMes
-        .filter(m => m.cuentaId === cuenta.id)
-        .reduce((sum, m) => sum + m.monto, 0);
-      return { ...cuenta, total };
-    });
-    const topCuentas = cuentasConTotal
-      .filter(c => c.total > 0)
-      .sort((a, b) => b.total - a.total)
-      .slice(0, 5);
+    // Top 5 cuentas
+    const cuentasResult = await query(
+      `SELECT c.id, c.nombre, c.tipo, COALESCE(SUM(m.monto), 0) as total
+       FROM cuentas c LEFT JOIN movimientos m ON m.cuenta_id = c.id AND m.periodo = $2 AND m.colegio_id = $1
+       WHERE c.colegio_id = $1 AND c.activo = true
+       GROUP BY c.id, c.nombre, c.tipo ORDER BY total DESC LIMIT 5`,
+      [cid, periodoActual]
+    );
 
-    // Balance
     const balance = ingresosMes - gastosMes;
 
-    // Configuración del colegio para el subtítulo
-    const config = getConfig();
-
-    // Estadísticas para los cards
-    const stats = {
-      ingresosMes: ingresosMes,
-      gastosMes: gastosMes,
-      cobradoMes: cobradoMes,
-      deudaTotal: deudaTotal,
-      subtitle: `${mesNombre} ${year} · Resumen financiero`,
-    };
-
     return NextResponse.json({
-      stats,
-      chart: ultimosMeses,
-      topCuentas,
-      balance: {
-        label: `Balance ${mesNombre} ${year}`,
-        value: balance,
-        isPositive: balance >= 0,
+      stats: {
+        ingresosMes, gastosMes, cobradoMes, deudaTotal,
+        subtitle: `${mesNombre} ${year} · Resumen financiero`,
       },
+      chart: ultimosMeses,
+      topCuentas: cuentasResult.rows.map((r: any) => ({
+        id: r.id, nombre: r.nombre, tipo: r.tipo, total: parseFloat(r.total),
+      })),
+      balance: { label: `Balance ${mesNombre} ${year}`, value: balance, isPositive: balance >= 0 },
     });
   } catch (error) {
     console.error('Error en /api/stats:', error);

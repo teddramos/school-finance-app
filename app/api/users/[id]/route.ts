@@ -1,30 +1,39 @@
-// app/api/users/[id]/route.ts
+// app/api/users/[id]/route.ts - Updated for PostgreSQL
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { verifyJWT } from '@/lib/auth';
-import { getUsers, setUsers } from '@/lib/db';
+import { query } from '@/lib/db-postgres';
 
-// Helper para obtener el usuario autenticado y verificar rol admin
-async function getAuthenticatedAdmin() {
+async function getAuthenticatedUser() {
   const cookieStore = await cookies();
-  const token = cookieStore.get('token')?.value;
+  let token = cookieStore.get('token')?.value;
+  if (!token) {
+    try {
+      const hdr = headers();
+      const auth = hdr.get('authorization') || hdr.get('Authorization');
+      if (auth && auth.startsWith('Bearer ')) token = auth.slice(7);
+    } catch (e) {}
+  }
   if (!token) return null;
   try {
-    const decoded = await verifyJWT(token);
-    if (decoded.role !== 'admin') return null;
-    return decoded;
+    return await verifyJWT(token);
   } catch {
     return null;
   }
 }
 
-// PUT /api/users/[id] - Actualizar usuario (solo admin)
+async function canManageUsers() {
+  const user = await getAuthenticatedUser();
+  return user?.role === 'superadmin' || user?.role === 'admin';
+}
+
+// PUT /api/users/[id]
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await getAuthenticatedAdmin();
-  if (!admin) {
+  const can = await canManageUsers();
+  if (!can) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -36,62 +45,60 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { name, username, password, role } = body;
+    const { name, username, password, role, activo } = body;
 
     if (!name || !username || !role) {
-      return NextResponse.json(
-        { error: 'Faltan campos requeridos (name, username, role)' },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: 'Faltan campos requeridos' }, { status: 400 });
     }
 
-    if (!['admin', 'asistente', 'empleado'].includes(role)) {
+    const validRoles = ['admin', 'asistente', 'empleado'];
+    if (!validRoles.includes(role)) {
       return NextResponse.json({ error: 'Rol inválido' }, { status: 400 });
     }
 
-    const users = getUsers();
-    const userIndex = users.findIndex(u => u.id === userId);
-    if (userIndex === -1) {
-      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
+    // Verificar username único
+    const existing = await query('SELECT id FROM usuarios WHERE username = $1 AND id != $2', [username, userId]);
+    if (existing.rows.length > 0) {
+      return NextResponse.json({ error: 'El nombre de usuario ya existe' }, { status: 400 });
     }
 
-    // Si se cambia el username, verificar que no exista ya en otro usuario
-    if (username !== users[userIndex].username && users.some(u => u.username === username)) {
-      return NextResponse.json(
-        { error: 'El nombre de usuario ya existe' },
-        { status: 400 }
+    // Si se proporciona contraseña, actualizarla; si no, mantener la existente
+    let result;
+    if (password && password.trim() !== '') {
+      result = await query(
+        `UPDATE usuarios SET username=$1, name=$2, role=$3, password=$4, activo=$5, updated_at=CURRENT_TIMESTAMP
+         WHERE id=$6 RETURNING id, username, name, role, colegio_id, activo`,
+        [username, name, role, password, activo !== false, userId]
+      );
+    } else {
+      result = await query(
+        `UPDATE usuarios SET username=$1, name=$2, role=$3, activo=$4, updated_at=CURRENT_TIMESTAMP
+         WHERE id=$5 RETURNING id, username, name, role, colegio_id, activo`,
+        [username, name, role, activo !== false, userId]
       );
     }
 
-    const updatedUser = {
-      ...users[userIndex],
-      name,
-      username,
-      role,
-      ...(password ? { password } : {}), // Solo actualizar contraseña si se envió
-    };
+    if (result.rows.length === 0) {
+      return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
+    }
 
-    users[userIndex] = updatedUser;
-    setUsers(users);
-
-    const { password: _, ...safeUser } = updatedUser;
-    return NextResponse.json(safeUser);
+    const u = result.rows[0];
+    return NextResponse.json({
+      id: u.id, username: u.username, name: u.name, role: u.role, colegioId: u.colegio_id, activo: u.activo,
+    });
   } catch (error) {
     console.error('Error updating user:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 }
 
-// DELETE /api/users/[id] - Eliminar usuario (solo admin)
+// DELETE /api/users/[id]
 export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await getAuthenticatedAdmin();
-  if (!admin) {
+  const can = await canManageUsers();
+  if (!can) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -102,29 +109,19 @@ export async function DELETE(
       return NextResponse.json({ error: 'ID inválido' }, { status: 400 });
     }
 
-    // Evitar que el admin se elimine a sí mismo
-    if (userId === admin.id) {
-      return NextResponse.json(
-        { error: 'No puedes eliminar tu propio usuario' },
-        { status: 400 }
-      );
+    const user = await getAuthenticatedUser();
+    if (user?.id === userId) {
+      return NextResponse.json({ error: 'No puedes eliminar tu propio usuario' }, { status: 400 });
     }
 
-    const users = getUsers();
-    const userExists = users.some(u => u.id === userId);
-    if (!userExists) {
+    const result = await query('DELETE FROM usuarios WHERE id = $1 RETURNING id', [userId]);
+    if (result.rows.length === 0) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
-    const filteredUsers = users.filter(u => u.id !== userId);
-    setUsers(filteredUsers);
-
-    return NextResponse.json({ message: 'Usuario eliminado correctamente' });
+    return NextResponse.json({ message: 'Usuario eliminado' });
   } catch (error) {
     console.error('Error deleting user:', error);
-    return NextResponse.json(
-      { error: 'Error interno del servidor' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });
   }
 }

@@ -76,7 +76,12 @@ export default function MovimientosPage() {
   
   const loadCuentas = useCallback(async () => {
     try {
-      const res = await fetch('/api/cuentas', { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/cuentas${cidParam}`, { credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al cargar cuentas');
       const data = await res.json();
       setCuentas(data);
@@ -89,8 +94,13 @@ export default function MovimientosPage() {
     setLoading(true);
     setError(null);
     try {
-      const url = `/api/movimientos?year=${selectedYear}&month=${selectedMonth + 1}&tipo=${tipoFilter}`;
-      const res = await fetch(url, { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `&colegioId=${cid}` : '';
+      const url = `/api/movimientos?year=${selectedYear}&month=${selectedMonth + 1}&tipo=${tipoFilter}${cidParam}`;
+      const res = await fetch(url, { credentials: 'same-origin', headers });
       if (!res.ok) {
         if (res.status === 401) router.push('/login');
         throw new Error('Error al cargar movimientos');
@@ -164,6 +174,11 @@ export default function MovimientosPage() {
     }
     setSubmitting(true);
     try {
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
       const payload = {
         tipo: formData.tipo,
         cuentaId: parseInt(formData.cuentaId),
@@ -174,17 +189,17 @@ export default function MovimientosPage() {
       };
       let res;
       if (editMovimiento) {
-        res = await fetch(`/api/movimientos/${editMovimiento.id}`, {
+        res = await fetch(`/api/movimientos/${editMovimiento.id}${cidParam}`, {
           method: 'PUT',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload)
         });
       } else {
-        res = await fetch('/api/movimientos', {
+        res = await fetch(`/api/movimientos${cidParam}`, {
           method: 'POST',
           credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify(payload)
         });
       }
@@ -201,7 +216,12 @@ export default function MovimientosPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('¿Eliminar este movimiento?')) return;
     try {
-      const res = await fetch(`/api/movimientos/${id}`, { method: 'DELETE', credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/movimientos/${id}${cidParam}`, { method: 'DELETE', credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al eliminar');
       loadMovimientos();
     } catch (err: any) {

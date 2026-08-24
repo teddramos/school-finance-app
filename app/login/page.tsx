@@ -14,46 +14,22 @@ export default function LoginPage() {
     setLoading(true);
     setError('');
     try {
-      // Intentar primero vía fetch (incluye credentials) y usar token como respaldo
-      try {
-        const res = await fetch('/api/auth/login', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username, password }),
-        });
-        const data = await res.json();
-        if (res.ok) {
-          
-          // Guardar token en localStorage como fallback para Authorization header
-          if (data?.token) {
-            try { localStorage.setItem('token', data.token); } catch (e) {}
-          }
-          // Forzar recarga completa para que la cookie (si fue establecida) sea enviada
-          window.location.assign('/dashboard');
-          return;
-        }else{
-          throw new Error(data.error || 'Error de autenticación');
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data?.token) {
+          try { localStorage.setItem('token', data.token); } catch (e) {}
         }
-      } catch (err: any) {
-      setError(err.message);
+        window.location.assign('/dashboard');
+        return;
+      } else {
+        throw new Error(data.error || 'Error de autenticación');
       }
-
-      // Fallback: enviar como formulario tradicional para forzar navegación completa y Set-Cookie
-      // const form = document.createElement('form');
-      // form.method = 'POST';
-      // form.action = '/api/auth/login';
-      // form.style.display = 'none';
-      // const u = document.createElement('input');
-      // u.name = 'username';
-      // u.value = username;
-      // form.appendChild(u);
-      // const p = document.createElement('input');
-      // p.name = 'password';
-      // p.value = password;
-      // form.appendChild(p);
-      // document.body.appendChild(form);
-      // form.submit();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -90,7 +66,8 @@ export default function LoginPage() {
             </button>
           </form>
           <div className="login-demo">
-            <strong>Accesos demo:</strong><br/>👑 admin / admin123 &nbsp;·&nbsp; 📋 asistente / asist123 &nbsp;·&nbsp; 👤 empleado / empl123
+            <strong>Accesos demo:</strong><br/>
+            👑 superadmin / super2025 &nbsp;·&nbsp; 🔧 admin / admin123 &nbsp;·&nbsp; 📋 asistente / asist123 &nbsp;·&nbsp; 👤 empleado / empl123
           </div>
         </div>
       </div>

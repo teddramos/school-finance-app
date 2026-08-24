@@ -8,12 +8,14 @@ interface User {
   id: number;
   name: string;
   username: string;
-  role: 'admin' | 'asistente' | 'empleado';
+  role: 'superadmin' | 'admin' | 'asistente' | 'empleado';
+  config?: { nombre?: string; telefono?: string } | null;
 }
 
 interface TopbarProps {
   user: User;
   onLogout: () => void;
+  config?: { nombre?: string; telefono?: string } | null;
 }
 
 const PAGE_TITLES: Record<string, string> = {
@@ -24,6 +26,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/reportes': 'Reportes',
   '/configuracion': 'Configuración',
   '/usuarios': 'Usuarios',
+  '/colegios': 'Colegios',
 };
 
 export default function Topbar({ user, onLogout }: TopbarProps) {
@@ -55,6 +58,7 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
   };
 
   const roleLabel = {
+    superadmin: 'SUPER ADMIN',
     admin: 'ADMIN',
     asistente: 'ASISTENTE',
     empleado: 'EMPLEADO',

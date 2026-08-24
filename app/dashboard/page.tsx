@@ -20,7 +20,13 @@ export default function DashboardPage() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const res = await fetch('/api/stats', { credentials: 'same-origin' });
+        const token = localStorage.getItem('token');
+        let headers: Record<string, string> = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const colegioId = localStorage.getItem('selectedColegioId');
+        let url = '/api/stats';
+        if (colegioId) url += `?colegioId=${colegioId}`;
+        const res = await fetch(url, { credentials: 'same-origin', headers });
         if (!res.ok) {
           if (res.status === 401) router.push('/login');
           throw new Error('Error al cargar datos');

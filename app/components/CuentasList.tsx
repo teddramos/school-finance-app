@@ -27,7 +27,12 @@ export default function CuentasList({ onEdit, onDelete, canEdit = false, refresh
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/cuentas', { credentials: 'same-origin' });
+      const token = localStorage.getItem('token');
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const cid = localStorage.getItem('selectedColegioId');
+      const cidParam = cid ? `?colegioId=${cid}` : '';
+      const res = await fetch(`/api/cuentas${cidParam}`, { credentials: 'same-origin', headers });
       if (!res.ok) throw new Error('Error al cargar cuentas');
       const data = await res.json();
       setCuentas(data);
