@@ -93,7 +93,8 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       const facturasRes = await fetch(`/api/facturas?padreId=${padre.id}&estado=pending`, { credentials: 'same-origin', headers: authHeaders });
       if (!facturasRes.ok) throw new Error();
-      const facturasData: Factura[] = await facturasRes.json();
+      const facturasResponse = await facturasRes.json();
+      const facturasData: Factura[] = facturasResponse.data || [];
       const pendientes = facturasData.filter(f => f.pagado < f.monto);
       setDeudas(pendientes);
       const total = pendientes.reduce((acc, f) => acc + (f.monto - f.pagado), 0);
@@ -102,8 +103,8 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
       // Obtener último pago
       const pagosRes = await fetch(`/api/pagos?padreId=${padre.id}&limit=1`, { credentials: 'same-origin', headers: authHeaders });
       if (pagosRes.ok) {
-        const pagosData = await pagosRes.json();
-        setUltimoPago(pagosData[0] || null);
+        const pagosResponse = await pagosRes.json();
+        setUltimoPago(pagosResponse.data?.[0] || null);
       } else {
         setUltimoPago(null);
       }

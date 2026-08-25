@@ -84,19 +84,19 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       const [padresRes, facturasRes, pagosRes, configRes] = await Promise.all([
         fetch('/api/padres', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/facturas', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/pagos', { credentials: 'same-origin', headers: authHeaders }),
+        fetch('/api/facturas?limit=9999', { credentials: 'same-origin', headers: authHeaders }),
+        fetch('/api/pagos?limit=9999', { credentials: 'same-origin', headers: authHeaders }),
         fetch('/api/config', { credentials: 'same-origin', headers: authHeaders }),
       ]);
       if (!padresRes.ok || !facturasRes.ok || !pagosRes.ok || !configRes.ok) throw new Error();
       const padresData = await padresRes.json();
-      const facturasData = await facturasRes.json();
-      const pagosData = await pagosRes.json();
+      const facturasResponse = await facturasRes.json();
+      const pagosResponse = await pagosRes.json();
       const configData = await configRes.json();
       
       setPadres(padresData);
-      setFacturas(facturasData);
-      setPagos(pagosData);
+      setFacturas(facturasResponse.data || []);
+      setPagos(pagosResponse.data || []);
       setTarifa(configData.tarifa || 1500);
     } catch (error) {
       console.error('Error loading data:', error);

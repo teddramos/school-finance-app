@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import Skeleton from './skeletons/Skeleton';
+import Paginator from './Paginator';
 
 interface Padre { id: number; nombre: string; cedula: string; hijos: { nombre: string; grado: string }[] }
 interface Factura { id: number; padreId: number; periodo: string; monto: number; pagado: number; estado: 'pendiente' | 'parcial' | 'pagado' }
@@ -22,79 +23,90 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
   const [facturas, setFacturas] = useState<Factura[]>([]);
   const [padres, setPadres] = useState<Padre[]>([]);
   const [config, setConfig] = useState<Config | null>(null);
-  const [pagos, setPagos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [periodos, setPeriodos] = useState<string[]>([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [filterEstado, setFilterEstado] = useState('todos');
   const [filterPeriodo, setFilterPeriodo] = useState('todos');
   const [filterPadre, setFilterPadre] = useState('todos');
   const [previewFactura, setPreviewFactura] = useState<{ factura: Factura; padre: Padre } | null>(null);
   const [expandedFactura, setExpandedFactura] = useState<number | null>(null);
+  const [pagosExpandido, setPagosExpandido] = useState<PagoResumen[]>([]);
+  const [cargandoPagos, setCargandoPagos] = useState(false);
 
-  const load = async () => {
+  // Debounce search
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Load padres + config once
+  useEffect(() => {
+    const h = authH();
+    Promise.all([
+      fetch('/api/padres', { credentials: 'same-origin', headers: h }).then(r => r.json()),
+      fetch('/api/config', { credentials: 'same-origin', headers: h }).then(r => r.json()),
+    ]).then(([p, c]) => { setPadres(p); setConfig(c); }).catch(() => {});
+  }, []);
+
+  const loadFacturas = useCallback(async () => {
     setLoading(true);
     try {
-      const [fR, pR, cR, pgR] = await Promise.all([
-        fetch('/api/facturas',{credentials:'same-origin',headers:authH()}),
-        fetch('/api/padres',{credentials:'same-origin',headers:authH()}),
-        fetch('/api/config',{credentials:'same-origin',headers:authH()}),
-        fetch('/api/pagos',{credentials:'same-origin',headers:authH()}),
-      ]);
-      if(!fR.ok||!pR.ok||!cR.ok) throw new Error();
-      setFacturas(await fR.json());
-      setPadres(await pR.json());
-      setConfig(await cR.json());
-      if(pgR.ok) setPagos(await pgR.json());
+      const params = new URLSearchParams({ limit: String(limit), offset: String((page - 1) * limit) });
+      if (debouncedSearch) params.set('q', debouncedSearch);
+      if (filterEstado !== 'todos') params.set('estado', filterEstado === 'pendiente' ? 'pending' : filterEstado);
+      if (filterPeriodo !== 'todos') params.set('padreId', '0');
+      if (filterPadre !== 'todos') params.set('padreId', filterPadre);
+      const r = await fetch(`/api/facturas?${params}`, { credentials: 'same-origin', headers: authH() });
+      if (!r.ok) throw new Error();
+      const data = await r.json();
+      let items: Factura[] = data.data || [];
+      // Client-side filter for periodo (API doesn't support it yet)
+      if (filterPeriodo !== 'todos') items = items.filter((f: Factura) => f.periodo === filterPeriodo);
+      setFacturas(items);
+      setTotal(data.total || 0);
+      setPeriodos(data.periodos || []);
     } catch { console.error('Error cargando facturas'); }
     finally { setLoading(false); }
-  };
-  useEffect(() => { load(); }, [refreshTrigger]);
+  }, [page, limit, debouncedSearch, filterEstado, filterPeriodo, filterPadre]);
+
+  useEffect(() => { loadFacturas(); }, [loadFacturas, refreshTrigger]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, filterEstado, filterPeriodo, filterPadre, limit]);
 
   const padreMap = Object.fromEntries(padres.map(p => [p.id, p]));
 
-  // Build reverse map: facturaId → pagos that contributed
-  const pagosPorFactura = useMemo(() => {
-    const map: Record<number, PagoResumen[]> = {};
-    for (const pago of pagos) {
-      for (const fc of (pago.facturasCubiertas || [])) {
-        if (!map[fc.id]) map[fc.id] = [];
-        map[fc.id].push({
-          pagoId: pago.id,
-          numRecibo: pago.numRecibo,
-          fecha: pago.fecha,
-          abono: Number(fc.abono),
-          forma: pago.forma,
-          usuario: pago.usuario,
-        });
+  // Load pagos for expanded factura
+  const loadPagosFactura = async (facturaId: number) => {
+    if (expandedFactura === facturaId) { setExpandedFactura(null); return; }
+    setExpandedFactura(facturaId);
+    setCargandoPagos(true);
+    try {
+      const r = await fetch(`/api/pagos?facturaId=${facturaId}&limit=9999`, { credentials: 'same-origin', headers: authH() });
+      if (!r.ok) return;
+      const data = await r.json();
+      const pagosData = data.data || [];
+      const list: PagoResumen[] = [];
+      for (const pago of pagosData) {
+        const fc = (pago.facturasCubiertas || []).find((f: any) => f.id === facturaId);
+        if (fc) list.push({ pagoId: pago.id, numRecibo: pago.numRecibo, fecha: pago.fecha, abono: Number(fc.abono), forma: pago.forma, usuario: pago.usuario });
       }
-    }
-    // Sort each by fecha ASC
-    for (const key of Object.keys(map)) {
-      map[Number(key)].sort((a, b) => a.fecha.localeCompare(b.fecha));
-    }
-    return map;
-  }, [pagos]);
+      list.sort((a, b) => a.fecha.localeCompare(b.fecha));
+      setPagosExpandido(list);
+    } catch { setPagosExpandido([]); }
+    finally { setCargandoPagos(false); }
+  };
 
-  const periodos = Array.from(new Set(facturas.map(f => f.periodo))).sort().reverse();
-  const filtered = facturas.filter(f => {
-    if(filterEstado!=='todos' && f.estado!==filterEstado) return false;
-    if(filterPeriodo!=='todos' && f.periodo!==filterPeriodo) return false;
-    if(filterPadre!=='todos' && f.padreId!==parseInt(filterPadre)) return false;
-    if(search) { const p = padreMap[f.padreId]; const q = search.toLowerCase(); if(!p?.nombre.toLowerCase().includes(q) && !p?.cedula.includes(q)) return false; }
-    return true;
-  }).sort((a,b) => b.periodo.localeCompare(a.periodo));
-
-  const totalMonto = filtered.reduce((s,f) => s+f.monto, 0);
-  const totalPagado = filtered.reduce((s,f) => s+f.pagado, 0);
-  const totalPendiente = totalMonto - totalPagado;
-
-  const printFactura = (f: Factura, padre: Padre) => {
+  const printFactura = (f: Factura, padre: Padre, pagosFactura: PagoResumen[]) => {
     const win = window.open('','_blank','width=700,height=700');
     if(!win){ alert('Permite ventanas emergentes para imprimir.'); return; }
     const pend = f.monto - f.pagado;
     const estLabel = f.estado==='pagado'?'Pagado':f.estado==='parcial'?'Parcial':'Pendiente';
-    const pagosFactura = pagosPorFactura[f.id] || [];
-    const pagosRows = pagosFactura.length > 0
+    const pr = pagosFactura.length > 0
       ? pagosFactura.map(pf => `<tr><td>${pf.fecha}</td><td>${pf.numRecibo}</td><td style="text-align:right">${formatMoney(pf.abono)}</td><td>${FORMA_LABELS[pf.forma]||pf.forma}</td></tr>`).join('')
       : '<tr><td colspan="4" style="text-align:center;color:#888">Sin pagos registrados</td></tr>';
 
@@ -128,37 +140,11 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
     <tr><td>Ya pagado</td><td style="text-align:right;font-weight:700;color:#2e7d32">-${formatMoney(f.pagado)}</td></tr>
     </tbody></table>
     <div class="tot"><span style="font-size:14px">PENDIENTE</span><span>${formatMoney(pend)}</span></div>
-    ${pagosFactura.length > 0 ? `
-    <div style="margin-top:16px;border-top:2px solid #e8f5ee;padding-top:12px">
+    ${pagosFactura.length > 0 ? `<div style="margin-top:16px;border-top:2px solid #e8f5ee;padding-top:12px">
       <div style="font-size:13px;font-weight:700;color:#2e7d32;margin-bottom:8px">📋 Pagos recibidos en esta factura</div>
-      <table><thead><tr><th>Fecha</th><th>N° Recibo</th><th style="text-align:right">Abono</th><th>Forma</th></tr></thead><tbody>${pagosRows}</tbody></table>
-    </div>` : ''}
+      <table><thead><tr><th>Fecha</th><th>N° Recibo</th><th style="text-align:right">Abono</th><th>Forma</th></tr></thead><tbody>${pr}</tbody></table></div>` : ''}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:20px"><div class="firma">Firma del Director</div><div class="firma">Firma del Padre / Tutor</div></div>
     <div class="footer"><strong style="color:#2e7d32">${config?.nombre||''}</strong> · ${config?.direccion||''}<br>Tel: ${config?.telefono||''}<br><em>Esta factura detalla la mensualidad escolar del período indicado.</em></div>
-    <script>window.onload=()=>{window.print();window.close()}</script></body></html>`);
-    win.document.close();
-  };
-
-  const printTable = () => {
-    const win = window.open('','_blank','width=900,height=700');
-    if(!win) return;
-    const rows = filtered.map(f => {
-      const p = padreMap[f.padreId];
-      const est = f.estado==='pagado'?'Pagado':f.estado==='parcial'?'Parcial':'Pendiente';
-      return `<tr><td>${mesNombre(f.periodo)}</td><td>${p?.nombre||f.padreId}</td><td>${p?.hijos.length||'—'}</td><td>${formatMoney(f.monto)}</td><td>${formatMoney(f.pagado)}</td><td>${formatMoney(f.monto-f.pagado)}</td><td>${est}</td></tr>`;
-    }).join('');
-    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Facturas</title>
-    <style>body{font-family:Arial,sans-serif;margin:18px;font-size:11px}
-    .h{text-align:center;border-bottom:2px solid #2e7d32;padding-bottom:10px;margin-bottom:12px}
-    .h h2{color:#2e7d32;margin:0;font-size:18px}table{width:100%;border-collapse:collapse;font-size:11px}
-    th{background:#e8f5ee;padding:6px 8px;text-align:left;border:1px solid #ccc;font-size:10px}
-    td{padding:5px 8px;border:1px solid #ddd}tr.tot td{font-weight:bold;background:#f5f5f5}
-    @media print{@page{size:landscape;margin:10mm}}</style></head><body>
-    <div class="h"><h2>🌿 ${config?.nombre||''}</h2><div style="font-size:10px;color:#666">RIF: ${config?.rif||''} · ${config?.direccion||''} · ${config?.telefono||''}</div>
-    <div style="margin-top:6px;font-weight:bold;color:#2e7d32">LISTADO DE FACTURAS</div></div>
-    <table><thead><tr><th>Período</th><th>Padre</th><th>Hijos</th><th>Factura</th><th>Pagado</th><th>Pendiente</th><th>Estado</th></tr></thead><tbody>${rows}
-    <tr class="tot"><td colspan="3">TOTALES (${filtered.length} facturas)</td><td>${formatMoney(totalMonto)}</td><td>${formatMoney(totalPagado)}</td><td>${formatMoney(totalPendiente)}</td><td></td></tr>
-    </tbody></table><div style="text-align:right;font-size:10px;color:#888;margin-top:8px">Generado: ${new Date().toLocaleDateString('es-DO')}</div>
     <script>window.onload=()=>{window.print();window.close()}</script></body></html>`);
     win.document.close();
   };
@@ -170,9 +156,9 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
       ['LISTADO DE FACTURAS'], [],
       ['PERÍODO','PADRE','CEDULA','HIJOS','FACTURA','PAGADO','PENDIENTE','ESTADO'],
     ];
-    filtered.forEach(f => { const p=padreMap[f.padreId]; const est=f.estado==='pagado'?'Pagado':f.estado==='parcial'?'Parcial':'Pendiente';
+    facturas.forEach(f => { const p=padreMap[f.padreId]; const est=f.estado==='pagado'?'Pagado':f.estado==='parcial'?'Parcial':'Pendiente';
       ws.push([f.periodo, p?.nombre||String(f.padreId), p?.cedula||'', p?.hijos.length||0, f.monto, f.pagado, f.monto-f.pagado, est]); });
-    ws.push([], [`TOTAL: ${filtered.length} facturas`, `Facturado: RD$${totalMonto}`, `Pagado: RD$${totalPagado}`, `Pendiente: RD$${totalPendiente}`]);
+    ws.push([], [`Mostrando ${facturas.length} de ${total} facturas`]);
     ws.push([], [`Generado: ${new Date().toLocaleDateString('es-DO')}`]);
     const sheet = XLSX.utils.aoa_to_sheet(ws);
     sheet['!cols'] = [{wch:12},{wch:28},{wch:14},{wch:7},{wch:14},{wch:14},{wch:14},{wch:10}];
@@ -181,7 +167,7 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
     XLSX.writeFile(wb, `Facturas_${config.nombre.replace(/\s/g,'_')}_${new Date().toISOString().slice(0,10)}.xlsx`);
   };
 
-  if(loading) return <div style={{display:'flex',flexDirection:'column',gap:8}}>{[1,2,3,4].map(i=><div key={i} className="card"><Skeleton width="100%" height={36}/></div>)}</div>;
+  if(loading && facturas.length === 0) return <div style={{display:'flex',flexDirection:'column',gap:8}}>{[1,2,3,4].map(i=><div key={i} className="card"><Skeleton width="100%" height={36}/></div>)}</div>;
 
   return (
     <div>
@@ -197,86 +183,79 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
           <option value="todos">Todos los padres</option>{padres.map(p=><option key={p.id} value={p.id}>{p.nombre}</option>)}
         </select>
         <div style={{marginLeft:'auto',display:'flex',gap:'6px'}}>
-          <button className="btn btn-outline btn-sm" onClick={printTable} title="Imprimir listado completo">🖨️ Imprimir</button>
           <button className="btn btn-green btn-sm" onClick={toExcel} title="Exportar a Excel">📊 Excel</button>
         </div>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:'10px',marginBottom:'14px'}}>
-        <div className="card" style={{padding:'10px 14px'}}><div style={{fontSize:'9px',fontWeight:700,color:'var(--hc-gray)',textTransform:'uppercase',marginBottom:'3px'}}>Total Facturado</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:'16px',fontWeight:700}}>{formatMoney(totalMonto)}</div></div>
-        <div className="card" style={{padding:'10px 14px'}}><div style={{fontSize:'9px',fontWeight:700,color:'var(--hc-gray)',textTransform:'uppercase',marginBottom:'3px'}}>Total Pagado</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:'16px',fontWeight:700,color:'var(--hc-green)'}}>{formatMoney(totalPagado)}</div></div>
-        <div className="card" style={{padding:'10px 14px'}}><div style={{fontSize:'9px',fontWeight:700,color:'var(--hc-gray)',textTransform:'uppercase',marginBottom:'3px'}}>Total Pendiente</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:'16px',fontWeight:700,color:'var(--hc-red)'}}>{formatMoney(totalPendiente)}</div></div>
-        <div className="card" style={{padding:'10px 14px'}}><div style={{fontSize:'9px',fontWeight:700,color:'var(--hc-gray)',textTransform:'uppercase',marginBottom:'3px'}}>Facturas</div><div style={{fontFamily:"'Playfair Display',serif",fontSize:'16px',fontWeight:700}}>{filtered.length}</div></div>
-      </div>
+      <Paginator page={page} total={total} limit={limit} onChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }} />
 
       <div className="card" style={{overflowX:'auto'}}>
         <div className="tbl-wrap">
           <table>
-            <thead><tr><th></th><th>Período</th><th>Padre</th><th>Hijos</th><th>Factura</th><th>Pagado</th><th>Pendiente</th><th>Estado</th><th>Acc.</th></tr></thead>
+            <thead><tr><th style={{width:'28px'}}></th><th>Período</th><th>Padre</th><th>Hijos</th><th>Factura</th><th>Pagado</th><th>Pendiente</th><th>Estado</th><th>Acc.</th></tr></thead>
             <tbody>
-              {filtered.length===0 && <tr><td colSpan={9} style={{textAlign:'center',color:'var(--hc-gray)',padding:'20px'}}>Sin facturas con los filtros seleccionados</td></tr>}
-              {filtered.map(f => {
+              {loading && <tr><td colSpan={9} style={{textAlign:'center',color:'var(--hc-gray)',padding:'10px'}}>Cargando...</td></tr>}
+              {!loading && facturas.length===0 && <tr><td colSpan={9} style={{textAlign:'center',color:'var(--hc-gray)',padding:'20px'}}>Sin facturas con los filtros seleccionados</td></tr>}
+              {!loading && facturas.map(f => {
                 const p = padreMap[f.padreId]; const pend=f.monto-f.pagado;
                 const est=f.estado==='pagado'?'Pagado':f.estado==='parcial'?'Parcial':'Pendiente';
                 const ec=ESTADO_COLORS[f.estado]||ESTADO_COLORS.pendiente;
-                const pagosList = pagosPorFactura[f.id] || [];
-                const totalAbonos = pagosList.reduce((s, pf) => s + pf.abono, 0);
                 const isExpanded = expandedFactura === f.id;
                 return (
                   <>
-                    <tr key={f.id} style={{cursor: pagosList.length > 0 ? 'pointer' : 'default'}} onClick={() => pagosList.length > 0 && setExpandedFactura(prev => prev === f.id ? null : f.id)}>
-                      <td style={{width:'28px',textAlign:'center',color:'var(--hc-gray)',fontSize:'12px'}}>
-                        {pagosList.length > 0 ? (isExpanded ? '▼' : '▶') : ''}
-                      </td>
+                    <tr key={f.id} style={{cursor:'pointer'}} onClick={() => loadPagosFactura(f.id)}>
+                      <td style={{textAlign:'center',color:'var(--hc-gray)',fontSize:'12px'}}>{isExpanded ? '▼' : '▶'}</td>
                       <td style={{fontWeight:600}}>{mesNombre(f.periodo)}</td>
                       <td>{p?.nombre||`#${f.padreId}`}<br/><span style={{fontSize:'10px',color:'var(--hc-gray)'}}>{p?.cedula}</span></td>
                       <td style={{textAlign:'center'}}>{p?.hijos.length||'—'}</td>
                       <td>{formatMoney(f.monto)}</td>
                       <td style={{color:'var(--hc-green)'}}>{formatMoney(f.pagado)}</td>
                       <td style={{color:pend>0?'var(--hc-red)':'var(--hc-green)',fontWeight:600}}>{formatMoney(pend)}</td>
-                      <td>
-                        <span style={{background:ec.bg,color:ec.color,padding:'3px 10px',borderRadius:'10px',fontSize:'11px',fontWeight:700}}>{est}</span>
-                        {pagosList.length > 0 && <span style={{fontSize:'10px',color:'var(--hc-gray)',marginLeft:'4px'}}>({pagosList.length} pago{pagosList.length>1?'s':''})</span>}
-                      </td>
+                      <td><span style={{background:ec.bg,color:ec.color,padding:'3px 10px',borderRadius:'10px',fontSize:'11px',fontWeight:700}}>{est}</span></td>
                       <td onClick={e=>e.stopPropagation()}>
-                        <button className="btn btn-outline btn-sm" title="Ver e imprimir factura" onClick={()=>p&&setPreviewFactura({factura:f,padre:p})}>🖨️</button>
+                        <button className="btn btn-outline btn-sm" title="Imprimir factura" onClick={() => { setPagosExpandido([]); loadPagosFactura(f.id).then(() => p && setPreviewFactura({factura:f,padre:p})); }}>🖨️</button>
                       </td>
                     </tr>
-                    {isExpanded && pagosList.length > 0 && (
+                    {isExpanded && (
                       <tr key={`${f.id}-pagos`}>
                         <td colSpan={9} style={{padding:'0 12px 12px 12px',background:'#f9fdf7'}}>
                           <div style={{padding:'10px 0',borderTop:'1px solid #e8f5ee'}}>
-                            <div style={{fontSize:'11px',fontWeight:700,color:'var(--hc-green)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.04em'}}>
-                              📋 Pagos recibidos — Total abonado: {formatMoney(totalAbonos)} de {formatMoney(f.monto)}
-                            </div>
-                            <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
-                              <thead>
-                                <tr>
-                                  <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Fecha</th>
-                                  <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>N° Recibo</th>
-                                  <th style={{textAlign:'right',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Abono</th>
-                                  <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Forma</th>
-                                  <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Registrado por</th>
-                                  <th style={{textAlign:'right',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Acumulado</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {pagosList.map((pf, idx) => {
-                                  const acumulado = pagosList.slice(0, idx+1).reduce((s, x) => s + x.abono, 0);
-                                  const esUltimo = idx === pagosList.length - 1;
-                                  return (
-                                    <tr key={pf.pagoId} style={{background: esUltimo ? '#e8f5ee' : 'transparent'}}>
-                                      <td style={{padding:'6px 8px'}}>{pf.fecha}</td>
-                                      <td style={{padding:'6px 8px',fontFamily:'monospace',fontWeight:600}}>{pf.numRecibo}</td>
-                                      <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:'var(--hc-green)'}}>{formatMoney(pf.abono)}</td>
-                                      <td style={{padding:'6px 8px'}}>{FORMA_LABELS[pf.forma]||pf.forma}</td>
-                                      <td style={{padding:'6px 8px',fontSize:'11px',color:'var(--hc-gray)'}}>{pf.usuario||'—'}</td>
-                                      <td style={{padding:'6px 8px',textAlign:'right',fontWeight:600,color:acumulado>=f.monto?'var(--hc-green)':'var(--hc-orange)'}}>{formatMoney(acumulado)}</td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                            {cargandoPagos ? (
+                              <div style={{textAlign:'center',color:'var(--hc-gray)',fontSize:'12px',padding:'8px'}}>Cargando pagos...</div>
+                            ) : pagosExpandido.length === 0 ? (
+                              <div style={{fontSize:'12px',color:'var(--hc-gray)',fontStyle:'italic',padding:'8px'}}>Sin pagos registrados para esta factura</div>
+                            ) : (
+                              <>
+                                <div style={{fontSize:'11px',fontWeight:700,color:'var(--hc-green)',marginBottom:'8px',textTransform:'uppercase',letterSpacing:'0.04em'}}>
+                                  📋 Pagos recibidos — Total abonado: {formatMoney(pagosExpandido.reduce((s,pf)=>s+pf.abono,0))} de {formatMoney(f.monto)}
+                                </div>
+                                <table style={{width:'100%',borderCollapse:'collapse',fontSize:'12px'}}>
+                                  <thead><tr>
+                                    <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Fecha</th>
+                                    <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>N° Recibo</th>
+                                    <th style={{textAlign:'right',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Abono</th>
+                                    <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Forma</th>
+                                    <th style={{textAlign:'left',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Registrado por</th>
+                                    <th style={{textAlign:'right',padding:'6px 8px',borderBottom:'2px solid #c5e5ce',fontSize:'10px',color:'var(--hc-gray)',fontWeight:700}}>Acumulado</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {pagosExpandido.map((pf, idx) => {
+                                      const acumulado = pagosExpandido.slice(0, idx+1).reduce((s, x) => s + x.abono, 0);
+                                      return (
+                                        <tr key={pf.pagoId} style={{background: idx === pagosExpandido.length - 1 ? '#e8f5ee' : 'transparent'}}>
+                                          <td style={{padding:'6px 8px'}}>{pf.fecha}</td>
+                                          <td style={{padding:'6px 8px',fontFamily:'monospace',fontWeight:600}}>{pf.numRecibo}</td>
+                                          <td style={{padding:'6px 8px',textAlign:'right',fontWeight:700,color:'var(--hc-green)'}}>{formatMoney(pf.abono)}</td>
+                                          <td style={{padding:'6px 8px'}}>{FORMA_LABELS[pf.forma]||pf.forma}</td>
+                                          <td style={{padding:'6px 8px',fontSize:'11px',color:'var(--hc-gray)'}}>{pf.usuario||'—'}</td>
+                                          <td style={{padding:'6px 8px',textAlign:'right',fontWeight:600,color:acumulado>=f.monto?'var(--hc-green)':'var(--hc-orange)'}}>{formatMoney(acumulado)}</td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -289,13 +268,15 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
         </div>
       </div>
 
+      <Paginator page={page} total={total} limit={limit} onChange={setPage} onLimitChange={l => { setLimit(l); setPage(1); }} />
+
       {previewFactura && (
         <div className="modal-bg" onClick={e=>{if(e.target===e.currentTarget)setPreviewFactura(null)}}>
           <div className="modal modal-lg">
             <div className="modal-head">
               <h3>🧾 Factura — {mesNombre(previewFactura.factura.periodo)}</h3>
               <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
-                <button className="btn btn-green btn-sm" onClick={()=>printFactura(previewFactura.factura,previewFactura.padre)}>🖨️ Imprimir</button>
+                <button className="btn btn-green btn-sm" onClick={() => printFactura(previewFactura.factura, previewFactura.padre, pagosExpandido)}>🖨️ Imprimir</button>
                 <button className="modal-close" onClick={()=>setPreviewFactura(null)} title="Cerrar">×</button>
               </div>
             </div>
@@ -308,29 +289,17 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
               <strong>Padre:</strong> {previewFactura.padre.nombre} · {previewFactura.padre.cedula}<br/>
               <strong>Hijos:</strong> {previewFactura.padre.hijos.map(h=>h.nombre).join(', ')||'—'}
             </div>
-            {(pagosPorFactura[previewFactura.factura.id] || []).length > 0 && (
+            {pagosExpandido.length > 0 && (
               <div style={{marginBottom:'12px'}}>
-                <div style={{fontSize:'11px',fontWeight:700,color:'var(--hc-green)',marginBottom:'6px'}}>📋 Pagos recibidos en esta factura:</div>
-                <div className="tbl-wrap">
-                  <table>
-                    <thead><tr><th>Fecha</th><th>Recibo</th><th>Abono</th><th>Forma</th></tr></thead>
-                    <tbody>
-                      {pagosPorFactura[previewFactura.factura.id].map(pf => (
-                        <tr key={pf.pagoId}>
-                          <td>{pf.fecha}</td>
-                          <td style={{fontFamily:'monospace',fontWeight:600}}>{pf.numRecibo}</td>
-                          <td style={{fontWeight:700,color:'var(--hc-green)'}}>{formatMoney(pf.abono)}</td>
-                          <td>{FORMA_LABELS[pf.forma]||pf.forma}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <div style={{fontSize:'11px',fontWeight:700,color:'var(--hc-green)',marginBottom:'6px'}}>📋 Pagos recibidos:</div>
+                <div className="tbl-wrap"><table><thead><tr><th>Fecha</th><th>Recibo</th><th>Abono</th><th>Forma</th></tr></thead><tbody>
+                  {pagosExpandido.map(pf => (<tr key={pf.pagoId}><td>{pf.fecha}</td><td style={{fontFamily:'monospace',fontWeight:600}}>{pf.numRecibo}</td><td style={{fontWeight:700,color:'var(--hc-green)'}}>{formatMoney(pf.abono)}</td><td>{FORMA_LABELS[pf.forma]||pf.forma}</td></tr>))}
+                </tbody></table></div>
               </div>
             )}
             <div style={{display:'flex',justifyContent:'flex-end',gap:'8px'}}>
               <button className="btn btn-outline" onClick={()=>setPreviewFactura(null)}>Cerrar</button>
-              <button className="btn btn-green" onClick={()=>printFactura(previewFactura.factura,previewFactura.padre)}>🖨️ Imprimir</button>
+              <button className="btn btn-green" onClick={() => printFactura(previewFactura.factura, previewFactura.padre, pagosExpandido)}>🖨️ Imprimir</button>
             </div>
           </div>
         </div>

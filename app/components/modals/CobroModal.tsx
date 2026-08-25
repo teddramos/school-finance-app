@@ -66,19 +66,20 @@ export default function CobroModal({ isOpen, padreId, onClose, onSuccess, onPaym
         const [padreRes, configRes, facturasRes] = await Promise.all([
           fetch(`/api/padres/${padreId}`, { credentials: 'same-origin', headers: authHeaders }),
           fetch('/api/config', { credentials: 'same-origin', headers: authHeaders }),
-          fetch('/api/facturas', { credentials: 'same-origin', headers: authHeaders }),
+          fetch(`/api/facturas?padreId=${padreId}&limit=9999`, { credentials: 'same-origin', headers: authHeaders }),
         ]);
         if (!padreRes.ok || !configRes.ok || !facturasRes.ok) throw new Error('Error al cargar datos');
         const padreData = await padreRes.json();
         const configData = await configRes.json();
-        const todasFacturas: FacturaPend[] = await facturasRes.json();
+        const facturasResponse = await facturasRes.json();
+        const todasFacturas: FacturaPend[] = facturasResponse.data || [];
         setPadre(padreData);
         setConfig(configData);
         const tarifa = configData.tarifa || 1500;
         const base = padreData.hijos.length * tarifa;
         setMontoBase(base);
         const pendientes = todasFacturas
-          .filter((f: FacturaPend) => f.padreId === padreId && f.pagado < f.monto)
+          .filter((f: FacturaPend) => f.pagado < f.monto)
           .sort((a: FacturaPend, b: FacturaPend) => a.periodo.localeCompare(b.periodo));
         setFacturasPendientes(pendientes);
       } catch (error) {

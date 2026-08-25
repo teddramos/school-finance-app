@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import {
   listFacturas, createFactura, facturaExists,
-  generarFacturasAutomatico,
+  generarFacturasAutomatico, getDistinctFacturaPeriodos,
 } from '@/lib/db';
 
 // Verificar si puede gestionar facturas (admin o asistente)
@@ -11,7 +11,7 @@ function canManageFacturas(role?: string) {
   return role === 'admin' || role === 'asistente' || role === 'superadmin';
 }
 
-// GET /api/facturas?padreId=123&estado=pending
+// GET /api/facturas?padreId=123&estado=pending&q=search&limit=20&offset=0
 export async function GET(request: Request) {
   const session = await getSession(request);
   if (!session) {
@@ -21,7 +21,10 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const padreId = searchParams.get('padreId');
-    const estado = searchParams.get('estado'); // 'pending', 'pagado', 'parcial' o undefined
+    const estado = searchParams.get('estado');
+    const q = searchParams.get('q') || undefined;
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20;
+    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0;
 
     let estadoFiltro: 'pendiente' | 'pagado' | 'parcial' | undefined;
     if (estado) {
@@ -33,15 +36,17 @@ export async function GET(request: Request) {
       }
     }
 
-    const facturas = await listFacturas(session.colegioId!, {
+    const result = await listFacturas(session.colegioId!, {
       padreId: padreId ? parseInt(padreId) : undefined,
       estado: estadoFiltro,
+      q,
+      limit,
+      offset,
     });
 
-    // Ordenar por periodo ascendente (más antigua primero)
-    facturas.sort((a, b) => a.periodo.localeCompare(b.periodo));
+    const periodos = await getDistinctFacturaPeriodos(session.colegioId!);
 
-    return NextResponse.json(facturas);
+    return NextResponse.json({ ...result, periodos });
   } catch (error) {
     console.error('Error GET facturas:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

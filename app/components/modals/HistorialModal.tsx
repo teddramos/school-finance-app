@@ -74,8 +74,10 @@ export default function HistorialModal({ isOpen, padreId, padreNombre, onClose }
         fetch('/api/config', { credentials: 'same-origin', headers: authHeaders() }),
       ]);
       if (!facturasRes.ok || !pagosRes.ok || !configRes.ok) throw new Error('Error al cargar historial');
-      setFacturas(await facturasRes.json());
-      setPagos(await pagosRes.json());
+      const facturasResponse = await facturasRes.json();
+      const pagosResponse = await pagosRes.json();
+      setFacturas(facturasResponse.data || facturasResponse);
+      setPagos(pagosResponse.data || pagosResponse);
       setConfig(await configRes.json());
     } catch (err: any) {
       setError(err.message);
