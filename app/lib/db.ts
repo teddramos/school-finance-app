@@ -24,14 +24,10 @@ function resolveCa(): string | null {
   }
 }
 
-<<<<<<< HEAD
-//const sslCa = resolveCa();
-=======
 // SSL configurable: DB_SSL=false desactiva TLS (Supabase directo).
 // Si no está en false, usa CA de DB_SSL_CA/ca.pem si existe; si no, TLS sin verificación.
 const sslDisabled = process.env.DB_SSL === 'false';
 const sslCa = sslDisabled ? null : resolveCa();
->>>>>>> deploy-to-test
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -49,15 +45,9 @@ const pool = new Pool({
       : { rejectUnauthorized: false },
 });
 
-<<<<<<< HEAD
-// if (!sslCa) {
-//   console.warn('⚠️ DB_SSL_CA no configurada y ca.pem no encontrado: conectando sin verificación de certificado.');
-// }
-=======
 if (!sslDisabled && !sslCa) {
   console.warn('⚠️ DB_SSL activo sin certificado CA: conectando sin verificación de certificado.');
 }
->>>>>>> deploy-to-test
 
 export { pool };
 
