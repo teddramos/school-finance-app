@@ -24,7 +24,7 @@ function resolveCa(): string | null {
   }
 }
 
-const sslCa = resolveCa();
+//const sslCa = resolveCa();
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -40,9 +40,9 @@ const pool = new Pool({
   //   : { rejectUnauthorized: false },
 });
 
-if (!sslCa) {
-  console.warn('⚠️ DB_SSL_CA no configurada y ca.pem no encontrado: conectando sin verificación de certificado.');
-}
+// if (!sslCa) {
+//   console.warn('⚠️ DB_SSL_CA no configurada y ca.pem no encontrado: conectando sin verificación de certificado.');
+// }
 
 export { pool };
 
