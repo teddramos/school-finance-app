@@ -35,9 +35,9 @@ const pool = new Pool({
   max: parseInt(process.env.DB_POOL_MAX || '10', 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000,
-  ssl: sslCa
-    ? { ca: sslCa, rejectUnauthorized: true }
-    : { rejectUnauthorized: false },
+  // ssl: sslCa
+  //   ? { ca: sslCa, rejectUnauthorized: true }
+  //   : { rejectUnauthorized: false },
 });
 
 if (!sslCa) {
