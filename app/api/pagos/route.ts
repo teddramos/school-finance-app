@@ -4,13 +4,14 @@ import { getSession } from '@/lib/auth';
 import {
   listPagos, registerPago, getPadre, getColegioById,
 } from '@/lib/db';
+import { getDistinctPagoMeses } from '@/lib/db';
 
 // Verificar si puede registrar pagos (admin o asistente)
 function canRegisterPayment(role?: string) {
   return role === 'admin' || role === 'asistente' || role === 'superadmin';
 }
 
-// GET /api/pagos?padreId=123&limit=1
+// GET /api/pagos?padreId=123&limit=20&offset=0&q=search&forma=efectivo&mes=2026-01
 export async function GET(request: Request) {
   const session = await getSession(request);
   if (!session) {
@@ -20,14 +21,26 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const padreId = searchParams.get('padreId');
-    const limit = searchParams.get('limit');
+    const limit = searchParams.get('limit') ? parseInt(searchParams.get('limit')!) : 20;
+    const offset = searchParams.get('offset') ? parseInt(searchParams.get('offset')!) : 0;
+    const q = searchParams.get('q') || undefined;
+    const forma = searchParams.get('forma') || undefined;
+    const mes = searchParams.get('mes') || undefined;
+    const facturaId = searchParams.get('facturaId') ? parseInt(searchParams.get('facturaId')!) : undefined;
 
-    const pagos = await listPagos(session.colegioId!, {
+    const result = await listPagos(session.colegioId!, {
       padreId: padreId ? parseInt(padreId) : undefined,
-      limit: limit ? parseInt(limit) : undefined,
+      limit,
+      offset,
+      q,
+      forma,
+      mes,
+      facturaId,
     });
 
-    return NextResponse.json(pagos);
+    const meses = await getDistinctPagoMeses(session.colegioId!);
+
+    return NextResponse.json({ ...result, meses });
   } catch (error) {
     console.error('Error GET pagos:', error);
     return NextResponse.json({ error: 'Error interno del servidor' }, { status: 500 });

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { SkeletonPadresGrid } from './skeletons/SkeletonCobros';
+import HistorialModal from './modals/HistorialModal';
 
 interface Hijo {
   id?: number;
@@ -73,6 +74,7 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
   const [hijosTemp, setHijosTemp] = useState<Hijo[]>([]);
   const [descuentosTemp, setDescuentosTemp] = useState<DescuentoPerfil[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [histPadre, setHistPadre] = useState<Padre | null>(null);
 
   // Cargar datos iniciales
   const loadData = async () => {
@@ -82,19 +84,19 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       const [padresRes, facturasRes, pagosRes, configRes] = await Promise.all([
         fetch('/api/padres', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/facturas', { credentials: 'same-origin', headers: authHeaders }),
-        fetch('/api/pagos', { credentials: 'same-origin', headers: authHeaders }),
+        fetch('/api/facturas?limit=9999', { credentials: 'same-origin', headers: authHeaders }),
+        fetch('/api/pagos?limit=9999', { credentials: 'same-origin', headers: authHeaders }),
         fetch('/api/config', { credentials: 'same-origin', headers: authHeaders }),
       ]);
       if (!padresRes.ok || !facturasRes.ok || !pagosRes.ok || !configRes.ok) throw new Error();
       const padresData = await padresRes.json();
-      const facturasData = await facturasRes.json();
-      const pagosData = await pagosRes.json();
+      const facturasResponse = await facturasRes.json();
+      const pagosResponse = await pagosRes.json();
       const configData = await configRes.json();
       
       setPadres(padresData);
-      setFacturas(facturasData);
-      setPagos(pagosData);
+      setFacturas(facturasResponse.data || []);
+      setPagos(pagosResponse.data || []);
       setTarifa(configData.tarifa || 1500);
     } catch (error) {
       console.error('Error loading data:', error);
@@ -250,9 +252,9 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
     }
   };
 
-  // Mostrar historial (disparar evento personalizado)
-  const verHistorial = (padreId: number) => {
-    window.dispatchEvent(new CustomEvent('openHistorial', { detail: padreId }));
+  // Mostrar historial del padre
+  const verHistorial = (padre: Padre) => {
+    setHistPadre(padre);
   };
 
   if (loading) {
@@ -334,9 +336,9 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
                   )}
                   <div style={{ display: 'flex', gap: '5px', marginTop: '9px', flexWrap: 'wrap' }}>
                     <button className="btn btn-gold btn-sm" style={{ flex: 1 }} onClick={() => onOpenCobroModal(padre.id)}>💵 Cobrar</button>
-                    <button className="btn btn-outline btn-sm" onClick={() => verHistorial(padre.id)}>📋</button>
-                    <button className="btn btn-outline btn-sm" onClick={() => openModal(padre)}>✏️</button>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(padre.id)}>🗑️</button>
+                    <button className="btn btn-outline btn-sm" title="Ver historial de facturas y pagos" onClick={() => verHistorial(padre)}>📋</button>
+                    <button className="btn btn-outline btn-sm" title="Editar padre e hijos" onClick={() => openModal(padre)}>✏️</button>
+                    <button className="btn btn-danger btn-sm" title="Eliminar padre" onClick={() => handleDelete(padre.id)}>🗑️</button>
                   </div>
                 </div>
               </div>
@@ -351,7 +353,7 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
           <div className="modal modal-lg">
             <div className="modal-head">
               <h3>{editPadre ? 'Editar Padre' : 'Nuevo Padre'}</h3>
-              <button className="modal-close" onClick={() => setModalOpen(false)}>×</button>
+              <button className="modal-close" onClick={() => setModalOpen(false)} title="Cerrar">×</button>
             </div>
             <div className="cfg-grid">
               <div className="fgroup">
@@ -431,6 +433,14 @@ export default function CobrosPadres({ onOpenCobroModal, refreshTrigger = 0 }: C
           </div>
         </div>
       )}
+
+      {/* Modal de historial de facturas y pagos */}
+      <HistorialModal
+        isOpen={!!histPadre}
+        padreId={histPadre?.id ?? null}
+        padreNombre={histPadre?.nombre}
+        onClose={() => setHistPadre(null)}
+      />
     </div>
   );
 }

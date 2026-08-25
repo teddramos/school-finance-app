@@ -164,7 +164,9 @@ export interface FacturaCubierta {
   id: number;
   periodo: string;
   monto: number;
+  pagado: number;
   abono: number;
+  estado: 'pagado' | 'parcial' | 'pendiente';
 }
 
 export interface Pago {
@@ -549,7 +551,13 @@ function mapFactura(row: any): Factura {
   };
 }
 
-export async function listFacturas(colegioId: number, opts?: { padreId?: number; estado?: 'pendiente' | 'pagado' | 'parcial' }): Promise<Factura[]> {
+export async function listFacturas(colegioId: number, opts?: {
+  padreId?: number;
+  estado?: 'pendiente' | 'pagado' | 'parcial';
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ data: Factura[]; total: number }> {
   const conds: string[] = [`colegio_id = $1`];
   const params: any[] = [colegioId];
   if (opts?.padreId) {
@@ -559,11 +567,22 @@ export async function listFacturas(colegioId: number, opts?: { padreId?: number;
   if (opts?.estado === 'pagado') conds.push(`pagado >= monto`);
   else if (opts?.estado === 'parcial') conds.push(`pagado > 0 AND pagado < monto`);
   else if (opts?.estado === 'pendiente') conds.push(`pagado < monto`);
+  if (opts?.q) {
+    params.push(`%${opts.q}%`);
+    conds.push(`padre_id IN (SELECT id FROM padres WHERE colegio_id=$1 AND (nombre ILIKE $${params.length} OR cedula ILIKE $${params.length}))`);
+  }
+  const where = conds.join(' AND ');
+  const countRow = await queryOne<{ cnt: number }>(
+    `SELECT COUNT(*)::int AS cnt FROM facturas WHERE ${where}`, params
+  );
+  const total = countRow?.cnt ?? 0;
+  const lim = opts?.limit && opts.limit > 0 ? Math.floor(opts.limit) : 50;
+  const off = opts?.offset && opts.offset >= 0 ? Math.floor(opts.offset) : 0;
   const rows = await query<any>(
-    `SELECT * FROM facturas WHERE ${conds.join(' AND ')} ORDER BY periodo ASC, padre_id ASC`,
+    `SELECT * FROM facturas WHERE ${where} ORDER BY periodo DESC, padre_id ASC LIMIT ${lim} OFFSET ${off}`,
     params
   );
-  return rows.map(mapFactura);
+  return { data: rows.map(mapFactura), total };
 }
 
 export async function getFacturaById(colegioId: number, id: number): Promise<Factura | null> {
@@ -577,6 +596,20 @@ export async function facturaExists(colegioId: number, padreId: number, periodo:
     [colegioId, padreId, periodo]
   );
   return !!row;
+}
+
+export async function getDistinctFacturaPeriodos(colegioId: number): Promise<string[]> {
+  const rows = await query<{ periodo: string }>(
+    `SELECT DISTINCT periodo FROM facturas WHERE colegio_id=$1 ORDER BY periodo DESC`, [colegioId]
+  );
+  return rows.map(r => String(r.periodo).trim());
+}
+
+export async function getDistinctPagoMeses(colegioId: number): Promise<string[]> {
+  const rows = await query<{ mes: string }>(
+    `SELECT DISTINCT SUBSTR(fecha::text,1,7) AS mes FROM pagos WHERE colegio_id=$1 ORDER BY mes DESC`, [colegioId]
+  );
+  return rows.map(r => String(r.mes).trim());
 }
 
 export async function createFactura(colegioId: number, data: {
@@ -632,7 +665,7 @@ async function attachPagosCubiertas(pagos: Pago[], colegioId: number): Promise<P
   if (!pagos.length) return pagos;
   const ids = pagos.map((p) => p.id);
   const cubiertas = await query<any>(
-    `SELECT pf.pago_id, f.id, f.periodo, f.monto, pf.abono
+    `SELECT pf.pago_id, f.id, f.periodo, f.monto, f.pagado, f.estado, pf.abono
      FROM pago_facturas pf JOIN facturas f ON f.id = pf.factura_id
       WHERE f.colegio_id=$1 AND pf.pago_id = ANY($2::int[]) ORDER BY f.periodo`,
     [colegioId, ids]
@@ -640,7 +673,7 @@ async function attachPagosCubiertas(pagos: Pago[], colegioId: number): Promise<P
   for (const p of pagos) {
     p.facturasCubiertas = cubiertas
       .filter((c) => c.pago_id === p.id)
-      .map((c) => ({ id: c.id, periodo: String(c.periodo).trim(), monto: Number(c.monto), abono: Number(c.abono) }));
+      .map((c) => ({ id: c.id, periodo: String(c.periodo).trim(), monto: Number(c.monto), pagado: Number(c.pagado), abono: Number(c.abono), estado: c.estado }));
     if (p.facturasCubiertas.length && p.facturaId === undefined) {
       p.facturaId = p.facturasCubiertas[0].id;
     }
@@ -648,18 +681,48 @@ async function attachPagosCubiertas(pagos: Pago[], colegioId: number): Promise<P
   return pagos;
 }
 
-export async function listPagos(colegioId: number, opts?: { padreId?: number; limit?: number }): Promise<Pago[]> {
+export async function listPagos(colegioId: number, opts?: {
+  padreId?: number;
+  limit?: number;
+  offset?: number;
+  q?: string;
+  forma?: string;
+  mes?: string;
+  facturaId?: number;
+}): Promise<{ data: Pago[]; total: number }> {
   const conds: string[] = [`p.colegio_id = $1`];
   const params: any[] = [colegioId];
   if (opts?.padreId) {
     params.push(opts.padreId);
     conds.push(`p.padre_id = $${params.length}`);
   }
-  let sql = `SELECT p.* FROM pagos p WHERE ${conds.join(' AND ')} ORDER BY p.fecha DESC, p.id DESC`;
-  if (opts?.limit && opts.limit > 0) sql += ` LIMIT ${Math.floor(opts.limit)}`;
+  if (opts?.forma) {
+    params.push(opts.forma);
+    conds.push(`p.forma = $${params.length}`);
+  }
+  if (opts?.mes) {
+    params.push(`${opts.mes}%`);
+    conds.push(`p.fecha::text LIKE $${params.length}`);
+  }
+  if (opts?.facturaId) {
+    params.push(opts.facturaId);
+    conds.push(`p.id IN (SELECT pago_id FROM pago_facturas WHERE factura_id = $${params.length})`);
+  }
+  if (opts?.q) {
+    params.push(`%${opts.q}%`);
+    conds.push(`(p.num_recibo ILIKE $${params.length} OR p.padre_id IN (SELECT id FROM padres WHERE colegio_id=$1 AND (nombre ILIKE $${params.length} OR cedula ILIKE $${params.length})))`);
+  }
+  const where = conds.join(' AND ');
+  const countRow = await queryOne<{ cnt: number }>(
+    `SELECT COUNT(*)::int AS cnt FROM pagos p WHERE ${where}`, params
+  );
+  const total = countRow?.cnt ?? 0;
+  const lim = opts?.limit && opts.limit > 0 ? Math.floor(opts.limit) : 50;
+  const off = opts?.offset && opts.offset >= 0 ? Math.floor(opts.offset) : 0;
+  const sql = `SELECT p.* FROM pagos p WHERE ${where} ORDER BY p.fecha DESC, p.id DESC LIMIT ${lim} OFFSET ${off}`;
   const rows = await query<any>(sql, params);
   const pagos = rows.map(mapPago);
-  return attachPagosCubiertas(pagos, colegioId);
+  return { data: await attachPagosCubiertas(pagos, colegioId), total };
 }
 
 /**

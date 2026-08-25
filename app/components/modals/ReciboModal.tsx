@@ -60,6 +60,7 @@ interface Pago {
 interface ReciboModalProps {
   isOpen: boolean;
   pago: Pago | null;
+  copia?: boolean;
   onClose: () => void;
 }
 
@@ -72,7 +73,7 @@ const formatMoney = (value: number): string => {
   return `RD$${value.toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
-export default function ReciboModal({ isOpen, pago, onClose }: ReciboModalProps) {
+export default function ReciboModal({ isOpen, pago, copia, onClose }: ReciboModalProps) {
   const printRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen || !pago) return null;
@@ -350,7 +351,7 @@ export default function ReciboModal({ isOpen, pago, onClose }: ReciboModalProps)
     <div className="modal-bg" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="modal modal-lg">
         <div className="modal-head">
-          <h3>🧾 Recibo de Pago</h3>
+          <h3>🧾 Recibo de Pago{copia ? ' (COPIA)' : ''}</h3>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button className="btn btn-green btn-sm" onClick={handlePrint}>🖨️ Imprimir</button>
             <button className="modal-close" onClick={onClose}>×</button>
@@ -364,7 +365,10 @@ export default function ReciboModal({ isOpen, pago, onClose }: ReciboModalProps)
             <div style={{ fontFamily: "'Playfair Display', serif", fontSize: '18px', fontWeight: 700, color: '#3a6b35' }}>{config.nombre}</div>
             <div style={{ fontSize: '10px', color: '#6b7068', marginTop: '2px' }}>{config.rif} · {config.direccion}</div>
             <div style={{ fontSize: '10px', color: '#6b7068' }}>{config.telefono} · {config.email}</div>
-            <div style={{ marginTop: '9px', display: 'inline-block', background: '#3a6b35', color: 'white', padding: '4px 16px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em' }}>RECIBO DE PAGO</div>
+            <div style={{ marginTop: '9px', display: 'flex', justifyContent: 'center', gap: '8px' }}>
+              <span style={{ display: 'inline-block', background: '#3a6b35', color: 'white', padding: '4px 16px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em' }}>RECIBO DE PAGO</span>
+              {copia && <span style={{ display: 'inline-block', background: '#b8860b', color: 'white', padding: '4px 12px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, letterSpacing: '0.06em' }}>COPIA</span>}
+            </div>
           </div>
 
           {/* Número de recibo y fecha */}
@@ -440,7 +444,10 @@ export default function ReciboModal({ isOpen, pago, onClose }: ReciboModalProps)
           <div style={{ textAlign: 'center', paddingTop: '10px', borderTop: '1px solid #eaeee8', fontSize: '10px', color: '#6b7068', lineHeight: '1.7' }}>
             <strong style={{ color: '#3a6b35' }}>{config.nombre}</strong> · {config.direccion}<br />
             Tel: {config.telefono} · {config.email}<br />
-            <em>Este recibo es comprobante válido de pago. Consérvelo para sus registros.</em>
+            {copia
+              ? <span style={{ color: '#b8860b', fontWeight: 700 }}>Esta impresión es una COPIA y no constituye recibo original de pago.</span>
+              : <em>Este recibo es comprobante válido de pago. Consérvelo para sus registros.</em>
+            }
           </div>
         </div>
 

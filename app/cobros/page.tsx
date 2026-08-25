@@ -4,12 +4,14 @@
 import { useState } from 'react';
 import CobrosCaja from '@/components/CobrosCaja';
 import CobrosPadres from '@/components/CobrosPadres';
+import FacturasView from '@/components/FacturasView';
+import PagosView from '@/components/PagosView';
 import RepCobros from '@/components/RepCobros';
 import CobroModal from '@/components/modals/CobroModal';
 import ReciboModal from '@/components/modals/ReciboModal'; // asegúrate de la ruta correcta
 
 export default function CobrosPage() {
-  const [activeTab, setActiveTab] = useState<'caja' | 'padres' | 'rep-cobros'>('caja');
+  const [activeTab, setActiveTab] = useState<'caja' | 'padres' | 'facturas' | 'pagos' | 'rep-cobros'>('caja');
   const [cobroModalOpen, setCobroModalOpen] = useState(false);
   const [selectedPadreId, setSelectedPadreId] = useState<number | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -43,11 +45,15 @@ export default function CobrosPage() {
         <div className="tabs" style={{ marginBottom: '16px' }}>
           <button className={`tab ${activeTab === 'caja' ? 'active' : ''}`} onClick={() => setActiveTab('caja')}>🏧 Caja</button>
           <button className={`tab ${activeTab === 'padres' ? 'active' : ''}`} onClick={() => setActiveTab('padres')}>👨‍👧‍👦 Padres / Hijos</button>
+          <button className={`tab ${activeTab === 'facturas' ? 'active' : ''}`} onClick={() => setActiveTab('facturas')}>🧾 Facturas</button>
+          <button className={`tab ${activeTab === 'pagos' ? 'active' : ''}`} onClick={() => setActiveTab('pagos')}>📜 Pagos</button>
           <button className={`tab ${activeTab === 'rep-cobros' ? 'active' : ''}`} onClick={() => setActiveTab('rep-cobros')}>📊 Reporte Cobros</button>
         </div>
 
         {activeTab === 'caja' && <CobrosCaja key={refreshKey} onOpenCobroModal={handleOpenCobroModal} />}
         {activeTab === 'padres' && <CobrosPadres key={refreshKey} onOpenCobroModal={handleOpenCobroModal} />}
+        {activeTab === 'facturas' && <FacturasView key={refreshKey} />}
+        {activeTab === 'pagos' && <PagosView key={refreshKey} />}
         {activeTab === 'rep-cobros' && <RepCobros key={refreshKey} />}
       </div>
 

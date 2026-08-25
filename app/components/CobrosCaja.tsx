@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Skeleton from './skeletons/Skeleton';
+import HistorialModal from './modals/HistorialModal';
 
 interface Hijo {
   id?: number;
@@ -63,6 +64,7 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
   const [totalDeuda, setTotalDeuda] = useState(0);
   const [ultimoPago, setUltimoPago] = useState<Pago | null>(null);
   const [cargandoDeudas, setCargandoDeudas] = useState(false);
+  const [histOpen, setHistOpen] = useState(false);
 
   const buscarPadres = async () => {
     if (busqueda.trim().length < 2) return;
@@ -91,7 +93,8 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
       const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       const facturasRes = await fetch(`/api/facturas?padreId=${padre.id}&estado=pending`, { credentials: 'same-origin', headers: authHeaders });
       if (!facturasRes.ok) throw new Error();
-      const facturasData: Factura[] = await facturasRes.json();
+      const facturasResponse = await facturasRes.json();
+      const facturasData: Factura[] = facturasResponse.data || [];
       const pendientes = facturasData.filter(f => f.pagado < f.monto);
       setDeudas(pendientes);
       const total = pendientes.reduce((acc, f) => acc + (f.monto - f.pagado), 0);
@@ -100,8 +103,8 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
       // Obtener último pago
       const pagosRes = await fetch(`/api/pagos?padreId=${padre.id}&limit=1`, { credentials: 'same-origin', headers: authHeaders });
       if (pagosRes.ok) {
-        const pagosData = await pagosRes.json();
-        setUltimoPago(pagosData[0] || null);
+        const pagosResponse = await pagosRes.json();
+        setUltimoPago(pagosResponse.data?.[0] || null);
       } else {
         setUltimoPago(null);
       }
@@ -212,9 +215,7 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
               <button
                 className="btn btn-sm"
                 style={{ background: 'rgba(255,255,255,.15)', color: 'white' }}
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent('openHistorial', { detail: padreSeleccionado.id }));
-                }}
+                onClick={() => setHistOpen(true)}
               >
                 📋 Historial
               </button>
@@ -326,6 +327,14 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
           )}
         </div>
       )}
+
+      {/* Modal de historial del padre seleccionado */}
+      <HistorialModal
+        isOpen={histOpen && !!padreSeleccionado}
+        padreId={padreSeleccionado?.id ?? null}
+        padreNombre={padreSeleccionado?.nombre}
+        onClose={() => setHistOpen(false)}
+      />
     </div>
   );
 }
