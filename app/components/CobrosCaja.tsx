@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Skeleton from './skeletons/Skeleton';
+import HistorialModal from './modals/HistorialModal';
 
 interface Hijo {
   id?: number;
@@ -63,6 +64,7 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
   const [totalDeuda, setTotalDeuda] = useState(0);
   const [ultimoPago, setUltimoPago] = useState<Pago | null>(null);
   const [cargandoDeudas, setCargandoDeudas] = useState(false);
+  const [histOpen, setHistOpen] = useState(false);
 
   const buscarPadres = async () => {
     if (busqueda.trim().length < 2) return;
@@ -212,9 +214,7 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
               <button
                 className="btn btn-sm"
                 style={{ background: 'rgba(255,255,255,.15)', color: 'white' }}
-                onClick={() => {
-                  window.dispatchEvent(new CustomEvent('openHistorial', { detail: padreSeleccionado.id }));
-                }}
+                onClick={() => setHistOpen(true)}
               >
                 📋 Historial
               </button>
@@ -326,6 +326,14 @@ export default function CobrosCaja({ onOpenCobroModal }: CobrosCajaProps) {
           )}
         </div>
       )}
+
+      {/* Modal de historial del padre seleccionado */}
+      <HistorialModal
+        isOpen={histOpen && !!padreSeleccionado}
+        padreId={padreSeleccionado?.id ?? null}
+        padreNombre={padreSeleccionado?.nombre}
+        onClose={() => setHistOpen(false)}
+      />
     </div>
   );
 }

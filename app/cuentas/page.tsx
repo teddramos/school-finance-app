@@ -203,8 +203,8 @@ export default function CuentasPage() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', gap: '4px' }}>
-                    <button className="btn btn-outline btn-sm" onClick={() => openEditModal(cuenta)}>✏️</button>
-                    <button className="btn btn-danger btn-sm" onClick={() => handleDelete(cuenta.id)}>🗑️</button>
+                    <button className="btn btn-outline btn-sm" title="Editar cuenta" onClick={() => openEditModal(cuenta)}>✏️</button>
+                    <button className="btn btn-danger btn-sm" title="Eliminar cuenta" onClick={() => handleDelete(cuenta.id)}>🗑️</button>
                   </div>
                 </div>
                 {cuenta.descripcion && (
@@ -222,7 +222,7 @@ export default function CuentasPage() {
           <div className="modal">
             <div className="modal-head">
               <h3>{editCuenta ? 'Editar Cuenta' : 'Nueva Cuenta'}</h3>
-              <button className="modal-close" onClick={() => setModalOpen(false)}>×</button>
+              <button className="modal-close" onClick={() => setModalOpen(false)} title="Cerrar">×</button>
             </div>
             <form onSubmit={handleSubmit}>
               <div className="fgroup">

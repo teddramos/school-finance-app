@@ -285,9 +285,9 @@ export default function UsuariosPage() {
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: '4px' }}>
-                            <button className="btn btn-outline btn-sm" onClick={() => openEditModal(user)}>✏️</button>
+                            <button className="btn btn-outline btn-sm" title="Editar usuario" onClick={() => openEditModal(user)}>✏️</button>
                             {user.id !== currentUserId && (
-                              <button className="btn btn-danger btn-sm" onClick={() => handleDelete(user)}>🗑️</button>
+                              <button className="btn btn-danger btn-sm" title="Eliminar usuario" onClick={() => handleDelete(user)}>🗑️</button>
                             )}
                           </div>
                         </td>
@@ -341,7 +341,7 @@ export default function UsuariosPage() {
           <div className="modal">
             <div className="modal-head">
               <h3>{editingUser ? 'Editar Usuario' : 'Nuevo Usuario'}</h3>
-              <button className="modal-close" onClick={() => setModalOpen(false)}>×</button>
+              <button className="modal-close" onClick={() => setModalOpen(false)} title="Cerrar">×</button>
             </div>
             <form onSubmit={handleSubmit}>
               {isSuperAdmin && !editingUser && (
