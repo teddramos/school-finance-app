@@ -164,7 +164,9 @@ export interface FacturaCubierta {
   id: number;
   periodo: string;
   monto: number;
+  pagado: number;
   abono: number;
+  estado: 'pagado' | 'parcial' | 'pendiente';
 }
 
 export interface Pago {
@@ -632,7 +634,7 @@ async function attachPagosCubiertas(pagos: Pago[], colegioId: number): Promise<P
   if (!pagos.length) return pagos;
   const ids = pagos.map((p) => p.id);
   const cubiertas = await query<any>(
-    `SELECT pf.pago_id, f.id, f.periodo, f.monto, pf.abono
+    `SELECT pf.pago_id, f.id, f.periodo, f.monto, f.pagado, f.estado, pf.abono
      FROM pago_facturas pf JOIN facturas f ON f.id = pf.factura_id
       WHERE f.colegio_id=$1 AND pf.pago_id = ANY($2::int[]) ORDER BY f.periodo`,
     [colegioId, ids]
@@ -640,7 +642,7 @@ async function attachPagosCubiertas(pagos: Pago[], colegioId: number): Promise<P
   for (const p of pagos) {
     p.facturasCubiertas = cubiertas
       .filter((c) => c.pago_id === p.id)
-      .map((c) => ({ id: c.id, periodo: String(c.periodo).trim(), monto: Number(c.monto), abono: Number(c.abono) }));
+      .map((c) => ({ id: c.id, periodo: String(c.periodo).trim(), monto: Number(c.monto), pagado: Number(c.pagado), abono: Number(c.abono), estado: c.estado }));
     if (p.facturasCubiertas.length && p.facturaId === undefined) {
       p.facturaId = p.facturasCubiertas[0].id;
     }
