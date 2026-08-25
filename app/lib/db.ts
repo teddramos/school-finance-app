@@ -24,10 +24,20 @@ function resolveCa(): string | null {
   }
 }
 
-// SSL configurable: DB_SSL=false desactiva TLS (Supabase directo).
-// Si no está en false, usa CA de DB_SSL_CA/ca.pem si existe; si no, TLS sin verificación.
-const sslDisabled = process.env.DB_SSL === 'false';
-const sslCa = sslDisabled ? null : resolveCa();
+// SSL configurable:
+//  - DB_SSL=false -> sin TLS
+//  - DB_SSL=true  -> TLS sin CA personalizada (Supabase pooler)
+//  - vacio/otro   -> auto: usa DB_SSL_CA/ca.pem si existe (verificado); si no, TLS sin verificacion
+const dbSslFlag = (process.env.DB_SSL || '').trim().toLowerCase();
+const sslDisabled = ['false', '0', 'no', 'off'].includes(dbSslFlag);
+const sslExplicit = ['true', '1', 'yes', 'on', 'require'].includes(dbSslFlag);
+const sslCa = !sslDisabled && !sslExplicit ? resolveCa() : null;
+
+function buildSsl(): any {
+  if (sslDisabled) return false;
+  if (sslCa) return { ca: sslCa, rejectUnauthorized: true };
+  return { rejectUnauthorized: false };
+}
 
 const pool = new Pool({
   host: process.env.DB_HOST,
@@ -38,14 +48,10 @@ const pool = new Pool({
   max: parseInt(process.env.DB_POOL_MAX || '10', 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 15000,
-  ssl: sslDisabled
-    ? false
-    : sslCa
-      ? { ca: sslCa, rejectUnauthorized: true }
-      : { rejectUnauthorized: false },
+  ssl: buildSsl(),
 });
 
-if (!sslDisabled && !sslCa) {
+if (!sslDisabled && !sslCa && !sslExplicit) {
   console.warn('⚠️ DB_SSL activo sin certificado CA: conectando sin verificación de certificado.');
 }
 
