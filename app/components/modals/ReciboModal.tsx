@@ -54,6 +54,7 @@ interface Pago {
     email: string;
     director: string;
     tarifa: number;
+    logo_url?: string;
   };
 }
 
@@ -361,7 +362,7 @@ export default function ReciboModal({ isOpen, pago, copia, onClose }: ReciboModa
         <div ref={printRef} className="recibo-printable" style={{ fontFamily: "'Open Sans', sans-serif", maxWidth: '580px', margin: '0 auto', color: '#1e2d1a' }}>
           {/* Encabezado */}
           <div style={{ textAlign: 'center', padding: '18px 0 14px', borderBottom: '3px solid #3a6b35', marginBottom: '16px' }}>
-            <div style={{ fontSize: '28px', marginBottom: '5px' }}>🌿</div>
+            <div style={{ fontSize: '28px', marginBottom: '5px' }}>{config.logo_url ? <img src={config.logo_url} alt="Logo" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover' }} /> : '🌿'}</div>
             <div style={{ fontFamily: "'Playfair Display', serif", fontSize: '18px', fontWeight: 700, color: '#3a6b35' }}>{config.nombre}</div>
             <div style={{ fontSize: '10px', color: '#6b7068', marginTop: '2px' }}>{config.rif} · {config.direccion}</div>
             <div style={{ fontSize: '10px', color: '#6b7068' }}>{config.telefono} · {config.email}</div>

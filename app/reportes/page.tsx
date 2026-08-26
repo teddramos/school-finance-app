@@ -31,6 +31,7 @@ interface ReporteData {
     telefono: string;
     email: string;
     director: string;
+    logo_url?: string;
   };
   periodo: string;
   ingresos: Movimiento[];
@@ -218,7 +219,10 @@ export default function ReportesPage() {
           <div className="card">
             {/* Encabezado institucional */}
             <div style={{ textAlign: 'center', paddingBottom: '18px', marginBottom: '18px', borderBottom: '3px solid var(--hc-green)' }}>
-              <div style={{ fontSize: '26px', marginBottom: '5px' }}>🌿</div>
+              {reporte.config.logo_url
+                ? <img src={reporte.config.logo_url} alt="Logo" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover', marginBottom: '5px' }} />
+                : <div style={{ fontSize: '26px', marginBottom: '5px' }}>🌿</div>
+              }
               <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 'clamp(16px, 3vw, 22px)', fontWeight: 700, color: 'var(--hc-green)', marginBottom: '2px' }}>
                 {reporte.config.nombre}
               </div>

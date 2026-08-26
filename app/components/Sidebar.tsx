@@ -3,6 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import type { ColegioConfig } from './LayoutClient';
 
 interface User {
   id: number;
@@ -15,10 +16,11 @@ interface User {
 
 interface SidebarProps {
   user: User;
+  config: ColegioConfig | null;
   onLogout: () => void;
 }
 
-export default function Sidebar({ user, onLogout }: SidebarProps) {
+export default function Sidebar({ user, config, onLogout }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -44,9 +46,12 @@ export default function Sidebar({ user, onLogout }: SidebarProps) {
       }}></div>
       <aside className="sidebar" id="sidebar">
         <div className="sb-header">
-          <div className="sb-logo-icon">🌿</div>
+          {config?.logo_url
+            ? <img src={config.logo_url} alt="Logo" style={{ width: 38, height: 38, borderRadius: '9px', objectFit: 'cover', flexShrink: 0 }} />
+            : <div className="sb-logo-icon">🌿</div>
+          }
           <div>
-            <div className="sb-logo-text">{user.colegioNombre || 'Las Palmas'}</div>
+            <div className="sb-logo-text">{config?.nombre || user.colegioNombre || 'Las Palmas'}</div>
             <div className="sb-logo-sub">Sistema Financiero</div>
           </div>
         </div>
