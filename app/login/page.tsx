@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 interface ColegioOption {
   id: number;
   nombre: string;
+  activo: boolean;
 }
 
 export default function LoginPage() {
@@ -101,7 +102,7 @@ export default function LoginPage() {
               <label>Colegio</label>
               <select value={colegioId} onChange={e => setColegioId(e.target.value)} required>
                 {colegios.map(c => (
-                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                  <option key={c.id} value={c.id}>{c.nombre}{!c.activo ? ' ⛔ DESACTIVADO' : ''}</option>
                 ))}
               </select>
             </div>

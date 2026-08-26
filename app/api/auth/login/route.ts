@@ -61,6 +61,14 @@ export async function POST(request: Request) {
       );
     }
 
+    // Validar que el colegio esté activo (el superadmin puede entrar aunque esté desactivado)
+    if (user.role !== 'superadmin' && !colegio.activo) {
+      return NextResponse.json(
+        { error: `El colegio "${colegio.nombre}" está desactivado. Contacte al administrador.` },
+        { status: 403 }
+      );
+    }
+
     // Crear token JWT (sin incluir password)
     const tokenPayload = {
       id: user.id,

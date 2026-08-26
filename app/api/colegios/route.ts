@@ -4,20 +4,33 @@ import { getSession } from '@/lib/auth';
 import { getColegios, createColegio, updateColegio } from '@/lib/db';
 
 // GET /api/colegios
-//  - Público (sin sesión): lista mínima para el selector del login.
+//  - Público (sin sesión): lista mínima para el selector del login (solo activos).
 //  - Autenticado: lista completa (superadmin gestiona colegios).
 export async function GET(request: Request) {
   try {
     const session = await getSession(request);
-    const colegios = await getColegios();
+    const allColegios = await getColegios();
 
     if (!session) {
-      // Solo lo necesario para el selector de colegio en el login
-      return NextResponse.json(colegios.map((c) => ({ id: c.id, nombre: c.nombre })));
+      // Devolver todos (activos e inactivos) para que el login muestre los desactivados con badge
+      return NextResponse.json(
+        allColegios.map((c) => ({ id: c.id, nombre: c.nombre, activo: c.activo }))
+      );
     }
 
     return NextResponse.json(
-      colegios.map((c) => ({ id: c.id, nombre: c.nombre, rif: c.rif, telefono: c.telefono, tarifa: Number(c.tarifa), activo: c.activo }))
+      allColegios.map((c) => ({
+        id: c.id,
+        nombre: c.nombre,
+        rif: c.rif,
+        telefono: c.telefono,
+        email: c.email || '',
+        direccion: c.direccion || '',
+        director: c.director || '',
+        tarifa: Number(c.tarifa),
+        activo: c.activo,
+        logo_url: c.logo_url || '',
+      }))
     );
   } catch (error) {
     console.error('Error GET colegios:', error);
@@ -75,7 +88,7 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json();
-    const { nombre, rif, telefono, email, direccion, director, tarifa } = body;
+    const { nombre, rif, telefono, email, direccion, director, tarifa, activo, logo_url } = body;
 
     const actualizado = await updateColegio(id, {
       nombre: nombre?.trim(),
@@ -85,6 +98,8 @@ export async function PUT(request: Request) {
       direccion: direccion?.trim(),
       director: director?.trim(),
       tarifa: typeof tarifa === 'number' && tarifa > 0 ? tarifa : undefined,
+      activo: typeof activo === 'boolean' ? activo : undefined,
+      logo_url: logo_url !== undefined ? logo_url : undefined,
     });
 
     if (!actualizado) {

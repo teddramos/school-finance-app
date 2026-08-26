@@ -90,6 +90,8 @@ export interface Colegio {
   direccion: string;
   director: string;
   tarifa: number;
+  activo: boolean;
+  logo_url: string;
 }
 
 export interface Cuenta {
@@ -201,15 +203,15 @@ const DEFAULT_CUENTAS: Array<[string, 'ingreso' | 'gasto', string]> = [
   ['Administración', 'gasto', 'Gastos administrativos'],
 ];
 
-export async function getColegios(): Promise<Array<{ id: number; nombre: string; rif: string; telefono: string; tarifa: number; activo: boolean }>> {
+export async function getColegios() {
   return query(
-    `SELECT id, nombre, rif, telefono, tarifa, activo FROM colegios ORDER BY id`
+    `SELECT id, nombre, rif, telefono, email, direccion, director, tarifa, activo, logo_url FROM colegios ORDER BY id`
   );
 }
 
 export async function getColegioById(id: number): Promise<Colegio | null> {
   return queryOne<Colegio>(
-    `SELECT id, nombre, rif, telefono, email, direccion, director, tarifa FROM colegios WHERE id = $1`,
+    `SELECT id, nombre, rif, telefono, email, direccion, director, tarifa, activo, logo_url FROM colegios WHERE id = $1`,
     [id]
   );
 }
@@ -246,7 +248,11 @@ export async function createColegio(data: {
   }
 }
 
-export async function updateColegio(id: number, data: Partial<Colegio>): Promise<Colegio | null> {
+export async function updateColegio(id: number, data: {
+  nombre?: string; rif?: string; telefono?: string; email?: string;
+  direccion?: string; director?: string; tarifa?: number;
+  activo?: boolean; logo_url?: string;
+}): Promise<Colegio | null> {
   return queryOne<Colegio>(
     `UPDATE colegios SET
        nombre    = COALESCE($2, nombre),
@@ -255,11 +261,14 @@ export async function updateColegio(id: number, data: Partial<Colegio>): Promise
        email     = COALESCE($5, email),
        direccion = COALESCE($6, direccion),
        director  = COALESCE($7, director),
-       tarifa    = COALESCE($8, tarifa)
+       tarifa    = COALESCE($8, tarifa),
+       activo    = COALESCE($9, activo),
+       logo_url  = COALESCE($10, logo_url)
      WHERE id = $1
-     RETURNING id, nombre, rif, telefono, email, direccion, director, tarifa`,
+     RETURNING id, nombre, rif, telefono, email, direccion, director, tarifa, activo, logo_url`,
     [id, data.nombre ?? null, data.rif ?? null, data.telefono ?? null, data.email ?? null,
-     data.direccion ?? null, data.director ?? null, data.tarifa ?? null]
+     data.direccion ?? null, data.director ?? null, data.tarifa ?? null,
+     data.activo ?? null, data.logo_url ?? null]
   );
 }
 

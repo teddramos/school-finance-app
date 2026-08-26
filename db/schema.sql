@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS colegios (
   director    VARCHAR(150) NOT NULL DEFAULT '',
   tarifa      NUMERIC(12,2) NOT NULL DEFAULT 1500 CHECK (tarifa >= 0),
   activo      BOOLEAN NOT NULL DEFAULT TRUE,
+  logo_url    TEXT NOT NULL DEFAULT '',
   creado_en   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
