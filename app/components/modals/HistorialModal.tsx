@@ -28,6 +28,7 @@ interface ColegioConfig {
   email: string;
   director: string;
   tarifa: number;
+  logo_url?: string;
 }
 
 interface HistorialModalProps {
@@ -120,6 +121,7 @@ export default function HistorialModal({ isOpen, padreId, padreNombre, onClose }
 
   const encabezadoHTML = (compacto: boolean): string => `
     <div class="enc">
+      ${config?.logo_url ? `<div style="margin-bottom:5px"><img src="${config.logo_url}" alt="Logo" style="width:40px;height:40px;border-radius:50%;object-fit:cover" /></div>` : ''}
       <div class="enc-nombre">${config?.nombre || 'Colegio'}</div>
       ${config?.rif ? `<div>RIF: ${config.rif}</div>` : ''}
       ${config?.direccion ? `<div>${config.direccion}</div>` : ''}

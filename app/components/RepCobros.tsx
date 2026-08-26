@@ -44,6 +44,7 @@ interface Config {
   email: string;
   director: string;
   tarifa: number;
+  logo_url?: string;
 }
 
 interface RepCobrosProps {
@@ -294,8 +295,11 @@ export default function RepCobros({ refreshTrigger = 0 }: RepCobrosProps) {
       </div>
 
       <div className="card">
-        <div style={{ textAlign: 'center', paddingBottom: '18px', marginBottom: '18px', borderBottom: '3px solid var(--hc-green)' }}>
-          <div style={{ fontSize: '26px', marginBottom: '5px' }}>🌿</div>
+          <div style={{ textAlign: 'center', paddingBottom: '18px', marginBottom: '18px', borderBottom: '3px solid var(--hc-green)' }}>
+          {config?.logo_url
+            ? <img src={config.logo_url} alt="Logo" style={{ width: 50, height: 50, borderRadius: '50%', objectFit: 'cover', marginBottom: '5px' }} />
+            : <div style={{ fontSize: '26px', marginBottom: '5px' }}>🌿</div>
+          }
           <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 'clamp(16px, 3vw, 22px)', fontWeight: 700, color: 'var(--hc-green)' }}>
             {config?.nombre || 'Colegio Las Palmas'}
           </div>

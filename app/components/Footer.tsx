@@ -1,15 +1,27 @@
 // components/Footer.tsx
-export default function Footer() {
+import type { ColegioConfig } from './LayoutClient';
+
+export default function Footer({ config }: { config: ColegioConfig | null }) {
   return (
     <>
       <hr className="hc-divider" />
       <footer className="site-footer">
-        <div>
-          <div className="footer-logo">🌿 Colegio Las Palmas</div>
-          <div style={{ marginTop: '3px' }}>Sistema de Gestión Financiera · Bonao, Monseñor Nouel</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          {config?.logo_url
+            ? <img src={config.logo_url} alt="Logo" style={{ width: 30, height: 30, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+            : <span style={{ fontSize: '20px' }}>🌿</span>
+          }
+          <div>
+            <div className="footer-logo">{config?.nombre || 'Colegio'}</div>
+            <div style={{ marginTop: '2px' }}>
+              {config?.direccion && <span>{config.direccion}</span>}
+              {config?.telefono && <span> · Tel: {config.telefono}</span>}
+            </div>
+            {config?.email && <div style={{ marginTop: '2px' }}>{config.email}</div>}
+          </div>
         </div>
         <div>
-          © 2025 Derechos reservados &nbsp;·&nbsp; <a href="#">Hogar Campestre Las Palmas</a>
+          © {new Date().getFullYear()} Derechos reservados
         </div>
       </footer>
     </>

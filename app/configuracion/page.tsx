@@ -12,6 +12,8 @@ interface ConfigData {
   direccion: string;
   director: string;
   tarifa: number;
+  logo_url?: string;
+  id?: number;
 }
 
 interface ColegioItem {
@@ -77,6 +79,10 @@ export default function ConfiguracionPage() {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
 
+  const [configLogoPreview, setConfigLogoPreview] = useState<string | null>(null);
+  const [uploadingConfigLogo, setUploadingConfigLogo] = useState(false);
+  const configLogoInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     const headers: Record<string, string> = {};
@@ -108,7 +114,9 @@ export default function ConfiguracionPage() {
     try {
       const res = await fetch('/api/config', { credentials: 'same-origin' });
       if (!res.ok) throw new Error('Error al cargar configuración');
-      setConfig(await res.json());
+      const data = await res.json();
+      setConfig(data);
+      setConfigLogoPreview(data.logo_url || null);
     } catch (err: any) { setError(err.message); }
     finally { setLoading(false); }
   };
@@ -279,6 +287,40 @@ export default function ConfiguracionPage() {
     }
   };
 
+  const handleConfigLogoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !config.id) return;
+    if (file.size > 2 * 1024 * 1024) { alert('El logo no puede exceder 2 MB'); return; }
+    if (!['image/png', 'image/jpeg', 'image/svg+xml', 'image/webp'].includes(file.type)) {
+      alert('Formato no soportado. Use PNG, JPG, SVG o WEBP.'); return;
+    }
+    setUploadingConfigLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append('logo', file);
+      const res = await fetch(`/api/colegios/logo?id=${config.id}`, {
+        method: 'POST', credentials: 'same-origin', headers: authHeaders(), body: fd,
+      });
+      if (!res.ok) throw new Error('Error al subir logo');
+      const data = await res.json();
+      setConfigLogoPreview(data.logo_url);
+      setConfig(prev => ({ ...prev, logo_url: data.logo_url }));
+    } catch (err: any) { alert(err.message); }
+    finally { setUploadingConfigLogo(false); }
+    e.target.value = '';
+  };
+
+  const removeConfigLogo = async () => {
+    if (!config.id || !confirm('¿Eliminar el logo del colegio?')) return;
+    try {
+      await fetch(`/api/colegios/logo?id=${config.id}`, {
+        method: 'DELETE', credentials: 'same-origin', headers: authHeaders(),
+      });
+      setConfigLogoPreview(null);
+      setConfig(prev => ({ ...prev, logo_url: '' }));
+    } catch (err) { console.error(err); }
+  };
+
   if (!isAdmin || loading) return <SkeletonConfiguracion />;
 
   return (
@@ -292,6 +334,33 @@ export default function ConfiguracionPage() {
       <div className="page-wrap" style={{ maxWidth: '680px' }}>
         <div className="card">
           <div className="card-title">🏫 Información del Colegio</div>
+          {/* Logo section */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '16px', padding: '12px', background: 'var(--hc-cream)', borderRadius: '8px' }}>
+            <div style={{ cursor: 'pointer' }} onClick={() => configLogoInputRef.current?.click()}>
+              {configLogoPreview
+                ? <img src={configLogoPreview} alt="Logo" style={{ width: 72, height: 72, borderRadius: '12px', objectFit: 'cover', border: '2px solid #c5e5ce' }} />
+                : <div style={{
+                    width: 72, height: 72, borderRadius: '12px', border: '2px dashed #c5e5ce', display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', fontSize: 28, color: 'var(--hc-gray)', background: '#fff',
+                  }}>🌿</div>
+              }
+            </div>
+            <div>
+              <div style={{ fontSize: '13px', fontWeight: 700 }}>Logo del Colegio</div>
+              <div style={{ fontSize: '11px', color: 'var(--hc-gray)', marginBottom: '6px' }}>PNG, JPG, SVG o WEBP · Máx 2 MB</div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button type="button" className="btn btn-outline btn-sm" onClick={() => configLogoInputRef.current?.click()} disabled={uploadingConfigLogo}>
+                  {uploadingConfigLogo ? <span className="spin"></span> : '📤 Subir logo'}
+                </button>
+                {configLogoPreview && (
+                  <button type="button" className="btn btn-sm" onClick={removeConfigLogo} style={{ background: '#ffebee', color: '#c62828', border: '1px solid #ffcdd2' }}>
+                    🗑️ Quitar
+                  </button>
+                )}
+              </div>
+              <input ref={configLogoInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" style={{ display: 'none' }} onChange={handleConfigLogoFileChange} />
+            </div>
+          </div>
           <form onSubmit={handleSubmit}>
             <div className="cfg-grid">
               <div className="fgroup">

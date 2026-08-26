@@ -9,7 +9,7 @@ import Paginator from './Paginator';
 interface Padre { id: number; nombre: string; cedula: string; telefono: string; email: string; direccion: string; hijos: { nombre: string; grado: string }[]; descuentos?: { nombre: string; tipo: string; valor: number; activo: boolean }[] }
 interface FacturaCubierta { id: number; periodo: string; monto: number; pagado: number; abono: number; estado: 'pagado' | 'parcial' | 'pendiente' }
 interface PagoRaw { id: number; padreId: number; monto: number; fecha: string; forma: string; numRecibo: string; ref?: string; cardDigits?: string; obs?: string; usuario?: string; montoBase: number; descuentoPerfil: number; facturasCubiertas: FacturaCubierta[]; cargos: { nombre: string; monto: number }[]; descuentosAdicionales: { nombre: string; tipo: string; valor: number }[] }
-interface Config { nombre: string; rif: string; direccion: string; telefono: string; email: string; director: string; tarifa: number }
+interface Config { nombre: string; rif: string; direccion: string; telefono: string; email: string; director: string; tarifa: number; logo_url?: string }
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const formatMoney = (v: number) => `RD$${v.toLocaleString('es-DO',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
@@ -91,7 +91,7 @@ export default function PagosView({ refreshTrigger = 0 }: Props) {
     th{background:#e8f5ee;padding:6px 8px;text-align:left;border:1px solid #ccc;font-size:10px}
     td{padding:5px 8px;border:1px solid #ddd}tr.tot td{font-weight:bold;background:#f5f5f5}
     @media print{@page{size:landscape;margin:10mm}}</style></head><body>
-    <div class="h"><h2>🌿 ${config?.nombre||''}</h2><div style="font-size:10px;color:#666">RIF: ${config?.rif||''} · ${config?.direccion||''} · ${config?.telefono||''}</div>
+    <div class="h"><div style="margin-bottom:5px">${config?.logo_url ? `<img src="${config.logo_url}" alt="Logo" style="width:40px;height:40px;border-radius:50%;object-fit:cover" />` : '<span style="font-size:20px">🌿</span>'}</div><h2>${config?.nombre||''}</h2><div style="font-size:10px;color:#666">RIF: ${config?.rif||''} · ${config?.direccion||''} · ${config?.telefono||''}</div>
     <div style="margin-top:6px;font-weight:bold;color:#2e7d32">HISTORIAL DE PAGOS</div></div>
     <table><thead><tr><th>Fecha</th><th>N° Recibo</th><th>Padre / Tutor</th><th>Forma</th><th>Monto</th><th>Facturas afectadas</th><th>Registrado por</th></tr></thead><tbody>${rows}
     <tr class="tot"><td colspan="4">TOTAL — ${pagos.length} pago(s)</td><td>${formatMoney(totalMonto)}</td><td></td><td></td></tr>

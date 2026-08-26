@@ -32,6 +32,7 @@ export async function GET(request: Request) {
         email: config?.email || '',
         director: config?.director || '',
         tarifa: Number(config?.tarifa ?? 1500),
+        logo_url: config?.logo_url || '',
       },
       periodo: reporte.periodo,
       ingresos: reporte.ingresos,

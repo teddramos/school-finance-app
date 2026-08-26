@@ -3,6 +3,7 @@
 
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import type { ColegioConfig } from './LayoutClient';
 
 interface User {
   id: number;
@@ -15,6 +16,7 @@ interface User {
 
 interface TopbarProps {
   user: User;
+  config: ColegioConfig | null;
   onLogout: () => void;
 }
 
@@ -28,16 +30,13 @@ const PAGE_TITLES: Record<string, string> = {
   '/usuarios': 'Usuarios',
 };
 
-export default function Topbar({ user, onLogout }: TopbarProps) {
+export default function Topbar({ user, config }: TopbarProps) {
   const pathname = usePathname();
   const [isMobile, setIsMobile] = useState(false);
-
   const pageTitle = PAGE_TITLES[pathname] || 'Sistema Financiero';
 
   useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
@@ -67,14 +66,17 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
     <>
       {/* Desktop topbar */}
       <div className="topbar-desk" id="topbar-desk">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-          <span>📍 Carretera Las Palmas, Bonao, Monseñor Nouel, Rep. Dom.</span>
-          <span>📞 809-832-9405</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {config?.logo_url
+            ? <img src={config.logo_url} alt="Logo" style={{ width: 22, height: 22, borderRadius: '50%', objectFit: 'cover' }} />
+            : <span style={{ fontSize: '16px' }}>🌿</span>
+          }
+          <span style={{ fontWeight: 700, fontSize: '12px', color: 'white' }}>{config?.nombre || 'Colegio'}</span>
+          {config?.direccion && <span>📍 {config.direccion}</span>}
+          {config?.telefono && <span>📞 {config.telefono}</span>}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-          <a href="#">Inicio</a>
-          <a href="#">Contacto</a>
-          <span className="topbar-role" id="desk-role">{roleLabel}</span>
+          <span className="topbar-role">{roleLabel}</span>
         </div>
       </div>
 
@@ -82,15 +84,17 @@ export default function Topbar({ user, onLogout }: TopbarProps) {
       <div className="topbar-mobile" id="topbar-mobile">
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <button className="hamburger" onClick={toggleSidebar}>
-            <span></span>
-            <span></span>
-            <span></span>
+            <span></span><span></span><span></span>
           </button>
+          {config?.logo_url
+            ? <img src={config.logo_url} alt="" style={{ width: 24, height: 24, borderRadius: '50%', objectFit: 'cover' }} />
+            : <span style={{ fontSize: '18px' }}>🌿</span>
+          }
           <div style={{ fontFamily: "'Playfair Display', serif", fontSize: '14px', fontWeight: 700, color: 'white' }}>
             {pageTitle}
           </div>
         </div>
-        <span className="topbar-role" id="mob-role">{roleLabel}</span>
+        <span className="topbar-role">{roleLabel}</span>
       </div>
     </>
   );

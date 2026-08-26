@@ -7,7 +7,7 @@ import Paginator from './Paginator';
 
 interface Padre { id: number; nombre: string; cedula: string; hijos: { nombre: string; grado: string }[] }
 interface Factura { id: number; padreId: number; periodo: string; monto: number; pagado: number; estado: 'pendiente' | 'parcial' | 'pagado' }
-interface Config { nombre: string; rif: string; direccion: string; telefono: string; email: string; tarifa: number }
+interface Config { nombre: string; rif: string; direccion: string; telefono: string; email: string; tarifa: number; logo_url?: string }
 interface PagoResumen { pagoId: number; numRecibo: string; fecha: string; abono: number; forma: string; usuario?: string }
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
@@ -126,7 +126,7 @@ export default function FacturasView({ refreshTrigger = 0 }: Props) {
     .firma{text-align:center;border-top:1px solid #333;padding-top:8px;font-size:10px;color:#666}
     .footer{text-align:center;font-size:10px;color:#666;border-top:1px solid #eee;padding-top:10px;margin-top:18px}
     @media print{body{margin:12px}@page{margin:12mm}}</style></head><body>
-    <div class="enc"><div style="font-size:28px">🌿</div><div class="enc-n">${config?.nombre||'Colegio'}</div>
+    <div class="enc"><div style="margin-bottom:5px">${config?.logo_url ? `<img src="${config.logo_url}" alt="Logo" style="width:50px;height:50px;border-radius:50%;object-fit:cover" />` : '<div style="font-size:28px">🌿</div>'}</div><div class="enc-n">${config?.nombre||'Colegio'}</div>
     <div class="enc-d">${config?.rif||''} · ${config?.direccion||''}</div><div class="enc-d">${config?.telefono||''} · ${config?.email||''}</div>
     <div class="badge ${f.estado==='pagado'?'pago':f.estado==='parcial'?'parc':'pend'}">FACTURA — ${estLabel.toUpperCase()}</div></div>
     <div class="row2"><div class="box"><div style="font-size:10px;font-weight:700;color:#888;text-transform:uppercase;margin-bottom:4px">Período</div><div style="font-size:16px;font-weight:700">${mesNombre(f.periodo)}</div></div>
