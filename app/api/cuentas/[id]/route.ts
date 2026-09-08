@@ -2,14 +2,16 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { updateCuenta, deleteCuenta } from '@/lib/db';
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // PUT /api/cuentas/[id] - Actualizar cuenta (solo admin)
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
+  const session = await requireRole(request, ['admin', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -40,6 +42,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
     }
 
+    await auditLogFromSession(session, 'cuenta_actualizada', { cuentaId, nombre, tipo });
+
     return NextResponse.json(actualizada);
   } catch (error) {
     console.error('Error updating cuenta:', error);
@@ -52,8 +56,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
+  const session = await requireRole(request, ['admin', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -68,6 +72,8 @@ export async function DELETE(
     if (!ok) {
       return NextResponse.json({ error: 'Cuenta no encontrada' }, { status: 404 });
     }
+
+    await auditLogFromSession(session, 'cuenta_eliminada', { cuentaId });
 
     return NextResponse.json({ message: 'Cuenta eliminada correctamente' });
   } catch (error) {

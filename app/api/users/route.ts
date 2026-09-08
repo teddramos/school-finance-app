@@ -2,12 +2,15 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listUsers, createUser, usernameExists } from '@/lib/db';
+import type { Role } from '@/types';
+import { isConfigRole, unauthorized } from '@/lib/authorization';
+import { auditLog } from '@/lib/audit';
 
 // GET /api/users - Listar usuarios (admin: su colegio · superadmin: todos o ?colegioId=)
 export async function GET(request: Request) {
   const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  if (!session || !isConfigRole(session.role)) {
+    return NextResponse.json({ error: unauthorized() }, { status: 401 });
   }
 
   try {
@@ -18,8 +21,15 @@ export async function GET(request: Request) {
       colegioId = isNaN(qId) ? undefined : qId; // superadmin sin filtro ve todo
     }
     const users = await listUsers(colegioId);
-    // Ocultar contraseñas
-    const safeUsers = users.map(({ password, ...rest }) => rest);
+    // Ocultar contraseñas (SessionUser ya no incluye password en la mayoría de los paths)
+    const safeUsers = users.map((u) => ({
+      id: u.id,
+      username: u.username,
+      name: u.name,
+      role: u.role,
+      colegioId: u.colegioId,
+      colegioNombre: u.colegioNombre,
+    }));
     return NextResponse.json(safeUsers);
   } catch (error) {
     console.error('Error GET users:', error);
@@ -31,9 +41,8 @@ export async function GET(request: Request) {
 //  - admin: crea usuarios de su propio colegio
 //  - superadmin: crea usuarios para cualquier colegio (body.colegioId)
 export async function POST(request: Request) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+  const session = await getSession(request);  if (!session || !isConfigRole(session.role)) {
+    return NextResponse.json({ error: unauthorized() }, { status: 401 });
   }
 
   try {
@@ -47,7 +56,8 @@ export async function POST(request: Request) {
       );
     }
 
-    if (!['admin', 'asistente', 'empleado'].includes(role)) {
+    const roleTyped = role as Role;
+    if (!['admin', 'asistente', 'empleado'].includes(roleTyped)) {
       return NextResponse.json({ error: 'Rol inválido' }, { status: 400 });
     }
 
@@ -70,16 +80,29 @@ export async function POST(request: Request) {
       );
     }
 
-    const newUser = await createUser({
-      colegioId: targetColegioId,
-      name,
-      username,
-      password,
-      role,
-    });
+    const newUser = await createUser(
+      {
+        colegioId: targetColegioId,
+        name,
+        username,
+        password,
+        role: roleTyped,
+      },
+      {
+        id: session.id,
+        name: session.name,
+        role: session.role,
+      }
+    );
 
-    const { password: _, ...safeUser } = newUser;
-    return NextResponse.json(safeUser, { status: 201 });
+    return NextResponse.json({
+      id: newUser.id,
+      username: newUser.username,
+      name: newUser.name,
+      role: newUser.role,
+      colegioId: newUser.colegioId,
+      colegioNombre: newUser.colegioNombre,
+    }, { status: 201 });
   } catch (error) {
     console.error('Error creating user:', error);
     return NextResponse.json(

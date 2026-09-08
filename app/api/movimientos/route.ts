@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listMovimientos, createMovimiento, deleteMovimiento, getCuentaTipo } from '@/lib/db';
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // GET /api/movimientos?year=2025&month=3&tipo=todos
 export async function GET(request: Request) {
@@ -42,8 +44,8 @@ export async function GET(request: Request) {
 
 // POST /api/movimientos - Crear movimiento (admin o asistente)
 export async function POST(request: Request) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'asistente' && session.role !== 'superadmin') {
+  const session = await requireRole(request, ['admin', 'asistente', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -85,6 +87,8 @@ export async function POST(request: Request) {
       periodo,
     }, session.name || 'Sistema');
 
+    await auditLogFromSession(session, 'movimiento_creado', { movimientoId: nuevoMovimiento.id, tipo, cuentaId: parseInt(cuentaId), monto: montoNum, descripcion });
+
     return NextResponse.json(nuevoMovimiento, { status: 201 });
   } catch (error) {
     console.error('Error POST movimientos:', error);
@@ -94,8 +98,8 @@ export async function POST(request: Request) {
 
 // DELETE /api/movimientos?id=123
 export async function DELETE(request: Request) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'asistente' && session.role !== 'superadmin') {
+  const session = await requireRole(request, ['admin', 'asistente', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -113,6 +117,8 @@ export async function DELETE(request: Request) {
       }
       return NextResponse.json({ error: 'Movimiento no encontrado' }, { status: 404 });
     }
+
+    await auditLogFromSession(session, 'movimiento_eliminado', { movimientoId: id });
 
     return NextResponse.json({ ok: true });
   } catch (error) {

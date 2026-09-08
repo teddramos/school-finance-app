@@ -1,7 +1,8 @@
 // app/api/auth/login/route.ts
 import { NextResponse } from 'next/server';
-import { findUserByUsername, getColegioById } from '@/lib/db';
+import { findUserForAuth, getColegioById } from '@/lib/db';
 import { signJWT } from '@/lib/auth';
+
 
 export async function POST(request: Request) {
   try {
@@ -38,10 +39,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const user = await findUserByUsername(username);
+    const userForAuth = await findUserForAuth(username);
     const colegio = await getColegioById(colegioId);
 
-    if (!user || !user.password || !(await comparePassword(password, user.password))) {
+    if (!userForAuth || !userForAuth.passwordHash || !(await comparePassword(password, userForAuth.passwordHash))) {
       return NextResponse.json(
         { error: 'Credenciales inválidas' },
         { status: 401 }
@@ -54,7 +55,7 @@ export async function POST(request: Request) {
 
     // Los usuarios normales solo pueden entrar a su propio colegio.
     // El superadmin puede entrar a cualquier colegio que seleccione.
-    if (user.role !== 'superadmin' && user.colegioId !== colegioId) {
+    if (userForAuth.role !== 'superadmin' && userForAuth.colegio_id !== colegioId) {
       return NextResponse.json(
         { error: `El usuario no pertenece al colegio "${colegio.nombre}"` },
         { status: 403 }
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
     }
 
     // Validar que el colegio esté activo (el superadmin puede entrar aunque esté desactivado)
-    if (user.role !== 'superadmin' && !colegio.activo) {
+    if (userForAuth.role !== 'superadmin' && !colegio.activo) {
       return NextResponse.json(
         { error: `El colegio "${colegio.nombre}" está desactivado. Contacte al administrador.` },
         { status: 403 }
@@ -71,10 +72,10 @@ export async function POST(request: Request) {
 
     // Crear token JWT (sin incluir password)
     const tokenPayload = {
-      id: user.id,
-      username: user.username,
-      role: user.role,
-      name: user.name,
+      id: userForAuth.id,
+      username: userForAuth.username,
+      role: userForAuth.role,
+      name: userForAuth.name,
       colegioId,
     };
     const token = await signJWT(tokenPayload);
@@ -83,10 +84,10 @@ export async function POST(request: Request) {
     if (contentType.includes('application/json')) {
       const response = NextResponse.json({
         user: {
-          id: user.id,
-          name: user.name,
-          role: user.role,
-          username: user.username,
+          id: userForAuth.id,
+          name: userForAuth.name,
+          role: userForAuth.role,
+          username: userForAuth.username,
           colegioId,
           colegioNombre: colegio.nombre,
         },
@@ -134,3 +135,4 @@ async function comparePassword(plain: string, storedHash: string): Promise<boole
     return false;
   }
 }
+

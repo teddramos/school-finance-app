@@ -2,11 +2,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listPadres, createPadre, padreExistsByCedula } from '@/lib/db';
-
-// Verificar si puede gestionar padres (admin o asistente)
-function canManagePadres(role?: string) {
-  return role === 'admin' || role === 'asistente' || role === 'superadmin';
-}
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // GET /api/padres?q=texto
 export async function GET(request: Request) {
@@ -38,7 +35,7 @@ export async function GET(request: Request) {
 // POST /api/padres - Crear nuevo padre (admin o asistente)
 export async function POST(request: Request) {
   const session = await getSession(request);
-  if (!session || !canManagePadres(session.role)) {
+  if (!session || !requireRole(request, ['admin', 'asistente', 'superadmin'])) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -70,6 +67,8 @@ export async function POST(request: Request) {
       hijos: hijos || [],
       descuentos: descuentos || [],
     });
+
+    await auditLogFromSession(session, 'padre_creado', { padreId: nuevoPadre.id, nombre, cedula });
 
     return NextResponse.json(nuevoPadre, { status: 201 });
   } catch (error) {

@@ -5,11 +5,8 @@ import {
   listFacturas, createFactura, facturaExists,
   generarFacturasAutomatico, getDistinctFacturaPeriodos,
 } from '@/lib/db';
-
-// Verificar si puede gestionar facturas (admin o asistente)
-function canManageFacturas(role?: string) {
-  return role === 'admin' || role === 'asistente' || role === 'superadmin';
-}
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // GET /api/facturas?padreId=123&estado=pending&q=search&limit=20&offset=0
 export async function GET(request: Request) {
@@ -57,7 +54,7 @@ export async function GET(request: Request) {
 // Se espera: { padreId, periodo, monto } o generar para todos los padres del período
 export async function POST(request: Request) {
   const session = await getSession(request);
-  if (!session || !canManageFacturas(session.role)) {
+  if (!session || !requireRole(request, ['admin', 'asistente', 'superadmin'])) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -68,6 +65,13 @@ export async function POST(request: Request) {
     // Si es generación automática para todos los padres en un período
     if (generarAutomatico && periodo) {
       const resultado = await generarFacturasAutomatico(session.colegioId!, periodo);
+
+      await auditLogFromSession(session, 'facturas_generadas_automaticas', {
+        colegioId: session.colegioId,
+        periodo,
+        facturasGeneradas: resultado.generadas || 0,
+      });
+
       return NextResponse.json(resultado);
     }
 
@@ -96,6 +100,8 @@ export async function POST(request: Request) {
       periodo,
       monto: montoNum,
     });
+
+    await auditLogFromSession(session, 'factura_creada', { facturaId: nuevaFactura.id, padreId, periodo, monto: montoNum });
 
     return NextResponse.json(nuevaFactura, { status: 201 });
   } catch (error) {

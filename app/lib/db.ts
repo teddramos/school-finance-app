@@ -69,16 +69,21 @@ export async function queryOne<T = any>(text: string, params?: any[]): Promise<T
 
 // ---------------- Interfaces (mismo contrato que el demo) ----------------
 
-export type Role = 'superadmin' | 'admin' | 'asistente' | 'empleado';
+import type { Role } from '@/types';
 
-export interface User {
+// User es importado desde @/types en capas superiores.
+// Este archivo define solo el formato crío de filas DB (UserRow) y mapeos.
+import type { SessionUser } from '@/types';
+import { auditLog } from '@/lib/audit';
+
+interface UserRow {
   id: number;
+  colegio_id: number | null;
   username: string;
-  password?: string;
+  password: string;
   role: Role;
   name: string;
-  colegioId: number | null;
-  colegioNombre?: string | null;
+  colegio_nombre?: string | null;
 }
 
 export interface Colegio {
@@ -252,8 +257,8 @@ export async function updateColegio(id: number, data: {
   nombre?: string; rif?: string; telefono?: string; email?: string;
   direccion?: string; director?: string; tarifa?: number;
   activo?: boolean; logo_url?: string;
-}): Promise<Colegio | null> {
-  return queryOne<Colegio>(
+}, actor?: { id: number; name: string; role: string }): Promise<Colegio | null> {
+  const updated = await queryOne<Colegio>(
     `UPDATE colegios SET
        nombre    = COALESCE($2, nombre),
        rif       = COALESCE($3, rif),
@@ -270,6 +275,39 @@ export async function updateColegio(id: number, data: {
      data.direccion ?? null, data.director ?? null, data.tarifa ?? null,
      data.activo ?? null, data.logo_url ?? null]
   );
+  if (updated && actor) {
+    const changes: string[] = [];
+    if (data.nombre !== undefined) changes.push('nombre');
+    if (data.rif !== undefined) changes.push('rif');
+    if (data.telefono !== undefined) changes.push('telefono');
+    if (data.email !== undefined) changes.push('email');
+    if (data.direccion !== undefined) changes.push('direccion');
+    if (data.director !== undefined) changes.push('director');
+    if (data.tarifa !== undefined) changes.push('tarifa');
+    if (data.activo !== undefined) {
+      changes.push('activo');
+      auditLog({
+        action: updated.activo ? 'colegio_enabled' : 'colegio_disabled',
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        colegioId: id,
+        colegioNombre: updated.nombre,
+        detail: `activo=${updated.activo}`,
+      });
+    }
+    if (data.logo_url !== undefined) changes.push('logo_url');
+    auditLog({
+      action: 'config_updated',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: id,
+      colegioNombre: updated.nombre,
+      detail: `cambios=[${changes.join(',')}]`,
+    });
+  }
+  return updated;
 }
 
 // ---------------- USUARIOS ----------------
@@ -284,39 +322,79 @@ interface UserRow {
   colegio_nombre?: string | null;
 }
 
-function mapUser(row: UserRow): User {
+// Mapea una fila cría de la tabla de usuarios hacia SessionUser (sin password).
+export function toSessionUser(row: UserRow): SessionUser {
   return {
     id: row.id,
     username: row.username,
-    password: row.password,
-    role: row.role,
     name: row.name,
+    role: row.role,
     colegioId: row.colegio_id,
     colegioNombre: row.colegio_nombre ?? null,
   };
 }
 
-export async function findUserByUsername(username: string): Promise<User | null> {
+function mapUserWithPassword(row: UserRow): SessionUser & { password: string } {
+  return {
+    id: row.id,
+    username: row.username,
+    password: row.password,
+    name: row.name,
+    role: row.role,
+    colegioId: row.colegio_id,
+    colegioNombre: row.colegio_nombre ?? null,
+  };
+}
+
+export async function findUserByUsername(username: string): Promise<SessionUser | null> {
   const row = await queryOne<UserRow>(
     `SELECT u.id, u.colegio_id, u.username, u.password, u.role, u.name, c.nombre AS colegio_nombre
      FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
      WHERE u.username = $1 AND u.activo = TRUE`,
     [username]
   );
-  return row ? mapUser(row) : null;
+  return row ? toSessionUser(row) : null;
 }
 
-export async function getUserById(id: number): Promise<User | null> {
+/**
+ * Datos críos de usuario para autenticación (incluye passwordHash para comparación interna).
+ * No lo uses para responder a clientes: expone la contraseña hash a capas que no deberían.
+ */
+interface UserAuthRow extends UserRow {
+  passwordHash: string;
+}
+
+export async function findUserForAuth(username: string): Promise<UserAuthRow | null> {
+  const row = await queryOne<UserAuthRow>(
+    `SELECT u.id, u.colegio_id, u.password AS passwordHash, u.role, u.name, c.nombre AS colegio_nombre
+     FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
+     WHERE u.username = $1 AND u.activo = TRUE`,
+    [username]
+  );
+  if (!row) return null;
+  return {
+    id: row.id,
+    colegio_id: row.colegio_id,
+    username: row.username,
+    password: row.passwordHash,
+    role: row.role,
+    name: row.name,
+    colegio_nombre: row.colegio_nombre,
+    passwordHash: row.passwordHash,
+  };
+}
+
+export async function getUserById(id: number): Promise<SessionUser | null> {
   const row = await queryOne<UserRow>(
     `SELECT u.id, u.colegio_id, u.username, u.password, u.role, u.name, c.nombre AS colegio_nombre
      FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
      WHERE u.id = $1 AND u.activo = TRUE`,
     [id]
   );
-  return row ? mapUser(row) : null;
+  return row ? toSessionUser(row) : null;
 }
 
-export async function listUsers(colegioId?: number): Promise<User[]> {
+export async function listUsers(colegioId?: number): Promise<SessionUser[]> {
   const where = colegioId ? `WHERE u.colegio_id = ${Number(colegioId)}` : '';
   const rows = await query<UserRow>(
     `SELECT u.id, u.colegio_id, u.username, '' AS password, u.role, u.name, c.nombre AS colegio_nombre
@@ -324,24 +402,38 @@ export async function listUsers(colegioId?: number): Promise<User[]> {
      ${where}
      ORDER BY c.id NULLS FIRST, u.id`
   );
-  return rows.map(mapUser);
+  return rows.map(toSessionUser);
 }
 
 export async function createUser(data: {
   colegioId: number | null; username: string; password: string; role: Role; name: string;
-}): Promise<User> {
+}, actor?: { id: number; name: string; role: string }): Promise<SessionUser> {
   const row = await queryOne<UserRow>(
     `INSERT INTO usuarios (colegio_id, username, password, role, name)
      VALUES ($1, $2, crypt($3, gen_salt('bf', 10)), $4, $5)
      RETURNING id, colegio_id, username, '' AS password, role, name`,
     [data.colegioId, data.username, data.password, data.role, data.name]
   ) as UserRow;
-  return mapUser(row);
+  const created = toSessionUser(row);
+  if (actor) {
+    auditLog({
+      action: 'user_created',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: data.colegioId,
+      colegioNombre: null,
+      targetId: created.id,
+      targetType: 'usuario',
+      detail: `role=${data.role}`,
+    });
+  }
+  return created;
 }
 
 export async function updateUser(id: number, data: {
   name?: string; username?: string; role?: Role; password?: string;
-}): Promise<User | null> {
+}, actor?: { id: number; name: string; role: string }): Promise<SessionUser | null> {
   let row;
   if (data.password) {
     row = await queryOne<UserRow>(
@@ -357,12 +449,46 @@ export async function updateUser(id: number, data: {
     );
   }
   if (!row) return null;
-  return await getUserById(row.id);
+  if (actor) {
+    const changes: string[] = [];
+    if (data.name !== undefined) changes.push('name');
+    if (data.username !== undefined) changes.push('username');
+    if (data.role !== undefined) changes.push('role');
+    if (data.password !== undefined) changes.push('password');
+    if (changes.length) {
+      auditLog({
+        action: 'user_updated',
+        actorId: actor.id,
+        actorName: actor.name,
+        actorRole: actor.role,
+        colegioId: row.colegio_id,
+        colegioNombre: row.colegio_nombre ?? null,
+        targetId: id,
+        targetType: 'usuario',
+        detail: `cambios=[${changes.join(',')}]`,
+      });
+    }
+  }
+  const updated = await getUserById(row.id);
+  return updated;
 }
 
-export async function deleteUser(id: number): Promise<boolean> {
+export async function deleteUser(id: number, actor?: { id: number; name: string; role: string }): Promise<boolean> {
   const row = await queryOne(`DELETE FROM usuarios WHERE id=$1 RETURNING id`, [id]);
-  return !!row;
+  const ok = !!row;
+  if (ok && actor) {
+    auditLog({
+      action: 'user_deleted',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: null,
+      colegioNombre: null,
+      targetId: id,
+      targetType: 'usuario',
+    });
+  }
+  return ok;
 }
 
 export async function usernameExists(username: string, excludeId?: number): Promise<boolean> {
@@ -382,26 +508,67 @@ export async function listCuentas(colegioId: number): Promise<Cuenta[]> {
   );
 }
 
-export async function createCuenta(colegioId: number, data: { nombre: string; tipo: 'ingreso' | 'gasto'; descripcion?: string }): Promise<Cuenta> {
-  return queryOne<Cuenta>(
+export async function createCuenta(colegioId: number, data: { nombre: string; tipo: 'ingreso' | 'gasto'; descripcion?: string }, actor?: { id: number; name: string; role: string }): Promise<Cuenta> {
+  const created = await queryOne<Cuenta>(
     `INSERT INTO cuentas (colegio_id, nombre, tipo, descripcion) VALUES ($1,$2,$3,$4)
      RETURNING id, nombre, tipo, descripcion`,
     [colegioId, data.nombre, data.tipo, data.descripcion || '']
-  ) as Promise<Cuenta>;
+  ) as Cuenta;
+  if (actor) {
+    auditLog({
+      action: 'account_created',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: colegioId,
+      colegioNombre: null,
+      targetId: created.id,
+      targetType: 'cuenta',
+      detail: `tipo=${data.tipo}`,
+    });
+  }
+  return created;
 }
 
-export async function updateCuenta(colegioId: number, id: number, data: { nombre: string; tipo: 'ingreso' | 'gasto'; descripcion?: string }): Promise<Cuenta | null> {
-  return queryOne<Cuenta>(
+export async function updateCuenta(colegioId: number, id: number, data: { nombre: string; tipo: 'ingreso' | 'gasto'; descripcion?: string }, actor?: { id: number; name: string; role: string }): Promise<Cuenta | null> {
+  const updated = await queryOne<Cuenta>(
     `UPDATE cuentas SET nombre=$3, tipo=$4, descripcion=$5 WHERE id=$2 AND colegio_id=$1
      RETURNING id, nombre, tipo, descripcion`,
     [colegioId, id, data.nombre, data.tipo, data.descripcion || '']
   );
+  if (updated && actor) {
+    auditLog({
+      action: 'account_updated',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: colegioId,
+      colegioNombre: null,
+      targetId: id,
+      targetType: 'cuenta',
+      detail: `nombre=${data.nombre}, tipo=${data.tipo}`,
+    });
+  }
+  return updated;
 }
 
-export async function deleteCuenta(colegioId: number, id: number): Promise<boolean> {
+export async function deleteCuenta(colegioId: number, id: number, actor?: { id: number; name: string; role: string }): Promise<boolean> {
   // Los movimientos asociados se eliminan en cascada (misma conducta que el demo)
   const row = await queryOne(`DELETE FROM cuentas WHERE id=$2 AND colegio_id=$1 RETURNING id`, [colegioId, id]);
-  return !!row;
+  const ok = !!row;
+  if (ok && actor) {
+    auditLog({
+      action: 'account_deleted',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: colegioId,
+      colegioNombre: null,
+      targetId: id,
+      targetType: 'cuenta',
+    });
+  }
+  return ok;
 }
 
 // ---------------- PADRES (+ hijos y descuentos) ----------------
@@ -900,32 +1067,72 @@ export async function getCuentaTipo(colegioId: number, cuentaId: number): Promis
 export async function createMovimiento(colegioId: number, data: {
   tipo: 'ingreso' | 'gasto'; cuentaId: number; monto: number; fecha: string;
   descripcion?: string; periodo: string;
-}, userName: string): Promise<Movimiento> {
+}, userName: string, actor?: { id: number; name: string; role: string }): Promise<Movimiento> {
   const row = await queryOne<any>(
     `INSERT INTO movimientos (colegio_id, tipo, cuenta_id, monto, fecha, descripcion, periodo, usuario, origen)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'manual') RETURNING *`,
     [colegioId, data.tipo, data.cuentaId, data.monto, data.fecha, data.descripcion || '', data.periodo, userName]
   );
-  return mapMovimiento(row);
+  const created = mapMovimiento(row);
+  if (actor) {
+    auditLog({
+      action: 'movement_created',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: colegioId,
+      colegioNombre: null,
+      targetId: created.id,
+      targetType: 'movimiento',
+      detail: `tipo=${data.tipo}, cuentaId=${data.cuentaId}`,
+    });
+  }
+  return created;
 }
 
 export async function updateMovimiento(colegioId: number, id: number, data: {
   tipo: 'ingreso' | 'gasto'; cuentaId: number; monto: number; fecha: string; descripcion?: string; periodo: string;
-}): Promise<Movimiento | null> {
+}, actor?: { id: number; name: string; role: string }): Promise<Movimiento | null> {
   const row = await queryOne<any>(
     `UPDATE movimientos SET tipo=$3, cuenta_id=$4, monto=$5, fecha=$6, descripcion=$7, periodo=$8
      WHERE id=$2 AND colegio_id=$1 AND origen <> 'cobro' RETURNING *`,
     [colegioId, id, data.tipo, data.cuentaId, data.monto, data.fecha, data.descripcion || '', data.periodo]
   );
-  return row ? mapMovimiento(row) : null;
+  const updated = row ? mapMovimiento(row) : null;
+  if (updated && actor) {
+    auditLog({
+      action: 'movement_updated',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: colegioId,
+      colegioNombre: null,
+      targetId: id,
+      targetType: 'movimiento',
+      detail: `tipo=${data.tipo}, cuentaId=${data.cuentaId}`,
+    });
+  }
+  return updated;
 }
 
-export async function deleteMovimiento(colegioId: number, id: number): Promise<{ ok: boolean; motivo?: 'no_encontrado' | 'cobro' }> {
+export async function deleteMovimiento(colegioId: number, id: number, actor?: { id: number; name: string; role: string }): Promise<{ ok: boolean; motivo?: 'no_encontrado' | 'cobro' }> {
   const mov = await queryOne<any>(`SELECT origen FROM movimientos WHERE id=$2 AND colegio_id=$1`, [colegioId, id]);
   if (!mov) return { ok: false, motivo: 'no_encontrado' };
   if (mov.origen === 'cobro') return { ok: false, motivo: 'cobro' };
-  await query(`DELETE FROM movimientos WHERE id=$2 AND colegio_id=$1`, [colegioId, id]);
-  return { ok: true };
+  const ok = await query(`DELETE FROM movimientos WHERE id=$2 AND colegio_id=$1`, [colegioId, id]).then(() => true);
+  if (ok && actor) {
+    auditLog({
+      action: 'movement_deleted',
+      actorId: actor.id,
+      actorName: actor.name,
+      actorRole: actor.role,
+      colegioId: colegioId,
+      colegioNombre: null,
+      targetId: id,
+      targetType: 'movimiento',
+    });
+  }
+  return { ok };
 }
 
 // ---------------- ESTADÍSTICAS / REPORTES ----------------

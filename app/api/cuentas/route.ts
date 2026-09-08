@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listCuentas, createCuenta } from '@/lib/db';
+import { requireRole } from '@/lib/authorization';
 
 // GET /api/cuentas - Listar todas las cuentas del colegio activo (autenticado)
 export async function GET(request: Request) {
@@ -17,7 +18,7 @@ export async function GET(request: Request) {
 // POST /api/cuentas - Crear nueva cuenta (solo admin)
 export async function POST(request: Request) {
   const session = await getSession(request);
-  if (!session || session.role !== 'admin' && session.role !== 'superadmin') {
+  if (!session || !requireRole(request, ['admin', 'superadmin'])) {
     return NextResponse.json({ error: 'No autorizado, se requieren permisos de administrador' }, { status: 401 });
   }
 

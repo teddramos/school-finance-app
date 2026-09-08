@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Open_Sans } from "next/font/google";
+import { ToastProvider, ToastStack } from '@/lib/ui-toast';
 import "./globals.css";
 
 const playfair = Playfair_Display({ subsets: ["latin"], variable: '--font-playfair' });
@@ -18,7 +19,10 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className={`${playfair.variable} ${openSans.variable}`}>
-        {children}
+        <ToastProvider>
+          {children}
+          <ToastStack />
+        </ToastProvider>
       </body>
     </html>
   );

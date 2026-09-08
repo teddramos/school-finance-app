@@ -2,11 +2,14 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { listUsers, updateUser, deleteUser, usernameExists } from '@/lib/db';
+import type { Role } from '@/types';
+import { isConfigRole, hasColegioScope, unauthorized } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // Helper: verificar permisos (admin de su colegio o superadmin global)
 async function getAuthorizedAdmin(request: Request) {
   const session = await getSession(request);
-  if (!session || (session.role !== 'admin' && session.role !== 'superadmin')) return null;
+  if (!session || !isConfigRole(session.role)) return null;
   return session;
 }
 
@@ -22,7 +25,7 @@ export async function PUT(
 ) {
   const session = await getAuthorizedAdmin(request);
   if (!session) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    return NextResponse.json({ error: unauthorized() }, { status: 401 });
   }
 
   try {
@@ -42,7 +45,8 @@ export async function PUT(
       );
     }
 
-    if (!['admin', 'asistente', 'empleado'].includes(role)) {
+    const roleTyped = role as Role;
+    if (!['admin', 'asistente', 'empleado'].includes(roleTyped)) {
       return NextResponse.json({ error: 'Rol inválido' }, { status: 400 });
     }
 
@@ -59,19 +63,42 @@ export async function PUT(
       );
     }
 
-    const updatedUser = await updateUser(userId, {
-      name,
-      username,
-      role,
-      ...(password ? { password } : {}), // Solo actualizar contraseña si se envió
-    });
+    const updatedUser = await updateUser(
+      userId,
+      {
+        name,
+        username,
+        role: roleTyped,
+        ...(password ? { password } : {}), // Solo actualizar contraseña si se envió
+      },
+      {
+        id: session.id,
+        name: session.name,
+        role: session.role,
+      }
+    );
 
     if (!updatedUser) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
-    const { password: _, ...safeUser } = updatedUser;
-    return NextResponse.json(safeUser);
+    await auditLogFromSession(session, 'usuario_actualizado', {
+      userId,
+      name,
+      username,
+      role: roleTyped,
+      colegioId: session.colegioId,
+    });
+
+    return NextResponse.json({
+      id: updatedUser.id,
+      username: updatedUser.username,
+      name: updatedUser.name,
+      role: updatedUser.role,
+      colegioId: updatedUser.colegioId,
+      colegioNombre: updatedUser.colegioNombre,
+    });
+
   } catch (error) {
     console.error('Error updating user:', error);
     return NextResponse.json(
@@ -88,7 +115,7 @@ export async function DELETE(
 ) {
   const session = await getAuthorizedAdmin(request);
   if (!session) {
-    return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
+    return NextResponse.json({ error: unauthorized() }, { status: 401 });
   }
 
   try {
@@ -110,7 +137,13 @@ export async function DELETE(
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
-    await deleteUser(userId);
+    await deleteUser(userId, {
+      id: session.id,
+      name: session.name,
+      role: session.role,
+    });
+
+    await auditLogFromSession(session, 'usuario_eliminado', { userId, colegioId: session.colegioId });
 
     return NextResponse.json({ message: 'Usuario eliminado correctamente' });
   } catch (error) {

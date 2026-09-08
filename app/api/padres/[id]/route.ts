@@ -4,10 +4,8 @@ import { getSession } from '@/lib/auth';
 import {
   getPadre, updatePadre, deletePadre, padreExistsByCedula,
 } from '@/lib/db';
-
-function canManagePadres(role?: string) {
-  return role === 'admin' || role === 'asistente' || role === 'superadmin';
-}
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // GET /api/padres/[id] - Obtener un padre por ID
 export async function GET(
@@ -43,8 +41,8 @@ export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
-  if (!session || !canManagePadres(session.role)) {
+  const session = await requireRole(request, ['admin', 'asistente', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -87,6 +85,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Padre no encontrado' }, { status: 404 });
     }
 
+    await auditLogFromSession(session, 'padre_actualizado', { padreId, nombre, cedula });
+
     return NextResponse.json(updatedPadre);
   } catch (error) {
     console.error('Error PUT padre:', error);
@@ -99,8 +99,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
-  if (!session || !canManagePadres(session.role)) {
+  const session = await requireRole(request, ['admin', 'asistente', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -117,6 +117,8 @@ export async function DELETE(
     }
 
     // La cascada elimina facturas, pagos, hijos y descuentos asociados
+    await auditLogFromSession(session, 'padre_eliminado', { padreId });
+
     return NextResponse.json({ message: 'Padre y sus datos eliminados correctamente' });
   } catch (error) {
     console.error('Error DELETE padre:', error);

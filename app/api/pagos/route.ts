@@ -5,11 +5,8 @@ import {
   listPagos, registerPago, getPadre, getColegioById,
 } from '@/lib/db';
 import { getDistinctPagoMeses } from '@/lib/db';
-
-// Verificar si puede registrar pagos (admin o asistente)
-function canRegisterPayment(role?: string) {
-  return role === 'admin' || role === 'asistente' || role === 'superadmin';
-}
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // GET /api/pagos?padreId=123&limit=20&offset=0&q=search&forma=efectivo&mes=2026-01
 export async function GET(request: Request) {
@@ -50,7 +47,7 @@ export async function GET(request: Request) {
 // POST /api/pagos - Registrar un pago
 export async function POST(request: Request) {
   const session = await getSession(request);
-  if (!session || !canRegisterPayment(session.role)) {
+  if (!session || !requireRole(request, ['admin', 'asistente', 'superadmin'])) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -105,6 +102,16 @@ export async function POST(request: Request) {
 
     const config = await getColegioById(session.colegioId!);
     const pagoResponse = { ...nuevoPago, padre, config };
+
+    await auditLogFromSession(session, 'pago_registrado', {
+      pagoId: nuevoPago.id,
+      padreId: parseInt(padreId),
+      monto: montoNum,
+      forma,
+      fecha,
+      referencia,
+    });
+
     return NextResponse.json(pagoResponse, { status: 201 });
   } catch (error) {
     console.error('Error POST pago:', error);

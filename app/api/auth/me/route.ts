@@ -2,6 +2,7 @@
 import { NextResponse } from 'next/server';
 import { verifyJWT } from '@/lib/auth';
 import { getUserById, getColegioById } from '@/lib/db';
+import { requireAuthenticated } from '@/lib/authorization';
 
 export async function GET(request: Request) {
   try {

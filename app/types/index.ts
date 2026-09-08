@@ -1,13 +1,27 @@
 // types/index.ts
 
-export interface User {
+export type Role = 'superadmin' | 'admin' | 'asistente' | 'empleado';
+
+// Sesión/usuario autenticado (lo que exponen /api/auth/me y se guarda en sesión)
+export interface SessionUser {
   id: number;
   username: string;
-  password: string;
-  role: 'admin' | 'asistente' | 'empleado';
   name: string;
+  role: Role;
+  colegioId: number | null;
+  colegioNombre: string | null;
 }
 
+// Payload del JWT (coincide con lo que firma /api/auth/login)
+export interface JWTPayload {
+  id: number;
+  username: string;
+  role: Role;
+  name: string;
+  colegioId: number | null;
+}
+
+// Shared domain types
 export interface Cuenta {
   id: number;
   nombre: string;
@@ -24,8 +38,9 @@ export interface Movimiento {
   descripcion?: string;
   periodo: string;
   usuario?: string;
-  origen?: string;
+  origen?: 'manual' | 'cobro';
   pagoId?: number;
+  cuentaNombre?: string;
 }
 
 export interface Hijo {
@@ -75,6 +90,15 @@ export interface DescuentoAdicional {
   valor: number;
 }
 
+export interface FacturaCubierta {
+  id: number;
+  periodo: string;
+  monto: number;
+  pagado: number;
+  abono: number;
+  estado: 'pagado' | 'parcial' | 'pendiente';
+}
+
 export interface Pago {
   id: number;
   numRecibo: string;
@@ -86,7 +110,7 @@ export interface Pago {
   ref?: string;
   cardDigits?: string;
   obs?: string;
-  facturasCubiertas: Array<{ id: number; periodo: string; monto: number; abono: number }>;
+  facturasCubiertas: FacturaCubierta[];
   usuario?: string;
   cargos: CargoAdicional[];
   descuentosPerfil: number;
@@ -94,7 +118,9 @@ export interface Pago {
   montoBase: number;
 }
 
-export interface Config {
+// Configuración del colegio (la que edita /api/config y se usa en UI)
+export interface ColegioConfig {
+  id: number;
   nombre: string;
   rif: string;
   telefono: string;
@@ -102,11 +128,14 @@ export interface Config {
   direccion: string;
   director: string;
   tarifa: number;
+  activo: boolean;
+  logo_url: string;
 }
 
-export interface JWTPayload {
-  id: number;
-  username: string;
-  role: string;
-  name: string;
+// Claves de toast para usar con useToast()
+export type ToastType = 'success' | 'error' | 'info';
+export interface Toast {
+  id: string;
+  type: ToastType;
+  message: string;
 }

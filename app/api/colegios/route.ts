@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { getColegios, createColegio, updateColegio } from '@/lib/db';
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // GET /api/colegios
 //  - Público (sin sesión): lista mínima para el selector del login (solo activos).
@@ -40,8 +42,8 @@ export async function GET(request: Request) {
 
 // POST /api/colegios - Crear colegio (solo superadmin)
 export async function POST(request: Request) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'superadmin') {
+  const session = await requireRole(request, ['superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado, se requieren permisos de superadministrador' }, { status: 401 });
   }
 
@@ -63,6 +65,17 @@ export async function POST(request: Request) {
       tarifa: typeof tarifa === 'number' && tarifa > 0 ? tarifa : 1500,
     });
 
+    await auditLogFromSession(session, 'colegio_creado', {
+      colegioId: nuevoColegio.id,
+      nombre,
+      rif,
+      telefono,
+      email,
+      direccion,
+      director,
+      tarifa,
+    });
+
     return NextResponse.json(nuevoColegio, { status: 201 });
   } catch (error: any) {
     if (error?.code === '23505') {
@@ -75,8 +88,8 @@ export async function POST(request: Request) {
 
 // PUT /api/colegios?id=123 - Actualizar datos de un colegio (solo superadmin)
 export async function PUT(request: Request) {
-  const session = await getSession(request);
-  if (!session || session.role !== 'superadmin') {
+  const session = await requireRole(request, ['superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado, se requieren permisos de superadministrador' }, { status: 401 });
   }
 
@@ -105,6 +118,20 @@ export async function PUT(request: Request) {
     if (!actualizado) {
       return NextResponse.json({ error: 'Colegio no encontrado' }, { status: 404 });
     }
+
+    await auditLogFromSession(session, 'colegio_actualizado', {
+      colegioId: id,
+      nombre,
+      rif,
+      telefono,
+      email,
+      direccion,
+      director,
+      tarifa,
+      activo,
+      logo_url,
+    });
+
     return NextResponse.json(actualizado);
   } catch (error) {
     console.error('Error PUT colegios:', error);

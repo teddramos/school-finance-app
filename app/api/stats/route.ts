@@ -7,6 +7,7 @@ import {
   getTotalDeuda,
   getPagosQueAfectanPeriodo,
 } from '@/lib/db';
+import { requireAuthenticated } from '@/lib/authorization';
 
 const MESES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -14,7 +15,7 @@ const MESES = [
 ];
 
 export async function GET(request: Request) {
-  const session = await getSession(request);
+  const session = await requireAuthenticated(request);
   if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }

@@ -2,18 +2,16 @@
 import { NextResponse } from 'next/server';
 import { getSession } from '@/lib/auth';
 import { updateMovimiento, deleteMovimiento, getCuentaTipo } from '@/lib/db';
-
-function canEdit(role?: string) {
-  return role === 'admin' || role === 'asistente' || role === 'superadmin';
-}
+import { requireRole } from '@/lib/authorization';
+import { auditLogFromSession } from '@/lib/audit';
 
 // PUT /api/movimientos/[id] - Actualizar movimiento manual (admin o asistente)
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
-  if (!session || !canEdit(session.role)) {
+  const session = await requireRole(request, ['admin', 'asistente', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -58,6 +56,8 @@ export async function PUT(
       return NextResponse.json({ error: 'Movimiento no encontrado o generado por cobro' }, { status: 404 });
     }
 
+    await auditLogFromSession(session, 'movimiento_actualizado', { movimientoId: movId, tipo, cuentaId: parseInt(cuentaId), monto: parseFloat(monto), descripcion });
+
     return NextResponse.json(actualizado);
   } catch (error) {
     console.error('Error PUT movimiento:', error);
@@ -70,8 +70,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const session = await getSession(request);
-  if (!session || !canEdit(session.role)) {
+  const session = await requireRole(request, ['admin', 'asistente', 'superadmin']);
+  if (!session) {
     return NextResponse.json({ error: 'No autorizado' }, { status: 401 });
   }
 
@@ -89,6 +89,8 @@ export async function DELETE(
       }
       return NextResponse.json({ error: 'Movimiento no encontrado' }, { status: 404 });
     }
+
+    await auditLogFromSession(session, 'movimiento_eliminado', { movimientoId: movId });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
