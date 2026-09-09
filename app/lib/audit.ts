@@ -9,6 +9,7 @@ type AuditAction =
   | 'user_created'
   | 'user_updated'
   | 'user_deleted'
+  | 'login_success'
   | 'colegio_disabled'
   | 'colegio_enabled'
   | 'config_updated'

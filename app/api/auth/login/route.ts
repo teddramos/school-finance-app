@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { findUserForAuth, getColegioById } from '@/lib/db';
 import { signJWT } from '@/lib/auth';
-
+import { auditLog } from '@/lib/audit';
 
 export async function POST(request: Request) {
   try {
@@ -40,20 +40,9 @@ export async function POST(request: Request) {
     }
 
     const userForAuth = await findUserForAuth(username);
-    console.log('[login] findUserForAuth username=', username, 'userForAuth=', JSON.stringify(userForAuth));
     const colegio = await getColegioById(colegioId);
 
-    console.log('[login] check userForAuth=', !!userForAuth, 'hasPassword=', !!userForAuth?.passwordHash);
-    if (userForAuth && userForAuth.passwordHash) {
-      const cmp = await comparePassword(password, userForAuth.passwordHash);
-      console.log('[login] comparePassword result=', cmp);
-      if (!cmp) {
-        return NextResponse.json(
-          { error: 'Credenciales inválidas' },
-          { status: 401 }
-        );
-      }
-    } else {
+    if (!userForAuth || !userForAuth.passwordHash || !(await comparePassword(password, userForAuth.passwordHash))) {
       return NextResponse.json(
         { error: 'Credenciales inválidas' },
         { status: 401 }
@@ -114,6 +103,19 @@ export async function POST(request: Request) {
         maxAge: 60 * 60 * 8, // 8 horas
       });
 
+      // Audit log del login exitoso (JSON)
+      auditLog({
+        action: 'login_success',
+        actorId: userForAuth.id,
+        actorName: userForAuth.name,
+        actorRole: userForAuth.role,
+        colegioId,
+        colegioNombre: colegio.nombre,
+        targetId: userForAuth.id,
+        targetType: 'usuario',
+        detail: `login=success`,
+      });
+
       return response;
     }
 
@@ -126,6 +128,20 @@ export async function POST(request: Request) {
       path: '/',
       maxAge: 60 * 60 * 8,
     });
+
+    // Audit log del login exitoso (redirect)
+    auditLog({
+      action: 'login_success',
+      actorId: userForAuth.id,
+      actorName: userForAuth.name,
+      actorRole: userForAuth.role,
+      colegioId,
+      colegioNombre: colegio.nombre,
+      targetId: userForAuth.id,
+      targetType: 'usuario',
+      detail: `login=success`,
+    });
+
     return redirectRes;
   } catch (error) {
     console.error('Login error:', error);
@@ -136,35 +152,13 @@ export async function POST(request: Request) {
   }
 }
 
-// Verificación dual de contraseña:
-// - Si el hash está en formato bcrypt modular ($2a$/$2b$/$2y$), usamos bcrypt en Node.
-// - Si no, asumimos hash creado con pgcrypto (`crypt($pass, gen_salt('bf', ...))`)
-//   y lo verificamos en la BD.
+// Verificación bcrypt vía pgcrypto (hash guardado en BD)
 async function comparePassword(plain: string, storedHash: string): Promise<boolean> {
-  const stored = storedHash.trim();
-  if (!stored) return false;
-
-  const isBcryptFormat = /^\$2[aby]\$/.test(stored);
-
-  if (isBcryptFormat) {
-    // bcryptjs.compare es el camino correcto para hashes bcrypt existentes.
-    try {
-      const bcrypt = await import('bcryptjs');
-      return bcrypt.compare(plain, stored);
-    } catch (err) {
-      console.error('[login] bcrypt.compare falló:', err);
-      return false;
-    }
-  }
-
-  // Fallback pgcrypto para hashes creados con `crypt($pass, gen_salt('bf', ...))`.
+  const { pool } = await import('@/lib/db');
   try {
-    const { pool } = await import('@/lib/db');
-    const res = await pool.query(`SELECT crypt($1, $2) = $2 AS ok`, [plain, stored]);
+    const res = await pool.query(`SELECT crypt($1, $2) = $2 AS ok`, [plain, storedHash]);
     return res.rows[0]?.ok === true;
-  } catch (err) {
-    console.error('[login] pgcrypto compare falló:', err);
+  } catch {
     return false;
   }
 }
-

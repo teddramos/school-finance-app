@@ -366,7 +366,7 @@ interface UserAuthRow extends UserRow {
 
 export async function findUserForAuth(username: string): Promise<UserAuthRow | null> {
   const row = await queryOne<UserAuthRow>(
-    `SELECT u.id, u.colegio_id, u.password AS passwordHash, u.role, u.name, c.nombre AS colegio_nombre
+    `SELECT u.id, u.colegio_id, u.username, u.password AS "passwordHash", u.role, u.name, c.nombre AS colegio_nombre
      FROM usuarios u LEFT JOIN colegios c ON c.id = u.colegio_id
      WHERE u.username = $1 AND u.activo = TRUE`,
     [username]
