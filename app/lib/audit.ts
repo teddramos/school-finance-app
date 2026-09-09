@@ -1,7 +1,7 @@
 // lib/audit.ts
 // Logs de auditoría para acciones sensibles.
-// Por ahora va a consola / logs del servidor (no requiere cambios en BD).
-// Si se quiere persistencia, se puede escribir a la tabla audit_log que se provee en el script SQL.
+// Se persisten en la tabla audit_log (ver db/migrations/001_audit_and_constraints.sql).
+// También se escriben a consola para seguimiento en tiempo real.
 
 import type { SessionUser } from '@/types';
 
@@ -10,6 +10,7 @@ type AuditAction =
   | 'user_updated'
   | 'user_deleted'
   | 'login_success'
+  | 'login_failed'
   | 'colegio_disabled'
   | 'colegio_enabled'
   | 'config_updated'
@@ -39,12 +40,12 @@ type AuditAction =
 
 export interface AuditEntryBase {
   action: AuditAction;
-  actorId: number;
-  actorName: string;
-  actorRole: string;
+  actorId: number | null;
+  actorName: string | null;
+  actorRole: string | null;
   colegioId: number | null;
   colegioNombre: string | null;
-  targetId?: number;
+  targetId?: number | null;
   targetType?: string;
   detail?: string;
 }
@@ -55,9 +56,9 @@ export type AuditEntryWithSession = AuditEntryBase & {
 
 function makeEntry(
   action: AuditAction,
-  actorId: number,
-  actorName: string,
-  actorRole: string,
+  actorId: number | null,
+  actorName: string | null,
+  actorRole: string | null,
   colegioId: number | null,
   colegioNombre: string | null,
   targetId?: number,
@@ -97,7 +98,13 @@ function sanitizeDetail(detail?: string): string {
   return detail.slice(0, 1000);
 }
 
-function writeEntry(entry: AuditEntryWithSession): void {
+// Usa import dinámico del pool para evitar dependencia circular con lib/db.ts
+async function getPool() {
+  const { pool } = await import('@/lib/db');
+  return pool;
+}
+
+async function writeEntry(entry: AuditEntryWithSession): Promise<void> {
   const e = buildEntry(entry);
   const out = {
     ts: new Date().toISOString(),
@@ -105,13 +112,36 @@ function writeEntry(entry: AuditEntryWithSession): void {
     detail: sanitizeDetail(e.detail),
   };
   console.log('[audit]', JSON.stringify(out));
+
+  try {
+    const pool = await getPool();
+    await pool.query(
+      `INSERT INTO audit_log
+         (action, actor_id, actor_name, actor_role, colegio_id, colegio_nombre, target_id, target_type, detail)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [
+        e.action,
+        e.actorId,
+        e.actorName,
+        e.actorRole,
+        e.colegioId,
+        e.colegioNombre,
+        e.targetId ?? null,
+        e.targetType ?? null,
+        sanitizeDetail(e.detail) || null,
+      ]
+    );
+  } catch (err) {
+    // No romper la operación principal por un fallo de auditoría.
+    console.error('[audit] Error al guardar audit_log:', err);
+  }
 }
 
-export function auditLogFromSession(
+export async function auditLogFromSession(
   session: SessionUser,
   action: AuditAction,
   payload?: Record<string, unknown>
-): void {
+): Promise<void> {
   const entry = makeEntry(
     action,
     session.id,
@@ -123,10 +153,9 @@ export function auditLogFromSession(
     undefined,
     payload ? JSON.stringify(payload) : undefined,
   );
-  writeEntry(entry);
+  await writeEntry(entry);
 }
 
-export function auditLog(entry: AuditEntryWithSession): void {
-  writeEntry(entry);
+export async function auditLog(entry: AuditEntryWithSession): Promise<void> {
+  await writeEntry(entry);
 }
-

@@ -286,7 +286,7 @@ export async function updateColegio(id: number, data: {
     if (data.tarifa !== undefined) changes.push('tarifa');
     if (data.activo !== undefined) {
       changes.push('activo');
-      auditLog({
+      await auditLog({
         action: updated.activo ? 'colegio_enabled' : 'colegio_disabled',
         actorId: actor.id,
         actorName: actor.name,
@@ -297,7 +297,7 @@ export async function updateColegio(id: number, data: {
       });
     }
     if (data.logo_url !== undefined) changes.push('logo_url');
-    auditLog({
+    await auditLog({
       action: 'config_updated',
       actorId: actor.id,
       actorName: actor.name,
@@ -416,7 +416,7 @@ export async function createUser(data: {
   ) as UserRow;
   const created = toSessionUser(row);
   if (actor) {
-    auditLog({
+    await auditLog({
       action: 'user_created',
       actorId: actor.id,
       actorName: actor.name,
@@ -456,7 +456,7 @@ export async function updateUser(id: number, data: {
     if (data.role !== undefined) changes.push('role');
     if (data.password !== undefined) changes.push('password');
     if (changes.length) {
-      auditLog({
+      await auditLog({
         action: 'user_updated',
         actorId: actor.id,
         actorName: actor.name,
@@ -477,7 +477,7 @@ export async function deleteUser(id: number, actor?: { id: number; name: string;
   const row = await queryOne(`DELETE FROM usuarios WHERE id=$1 RETURNING id`, [id]);
   const ok = !!row;
   if (ok && actor) {
-    auditLog({
+    await auditLog({
       action: 'user_deleted',
       actorId: actor.id,
       actorName: actor.name,
@@ -515,7 +515,7 @@ export async function createCuenta(colegioId: number, data: { nombre: string; ti
     [colegioId, data.nombre, data.tipo, data.descripcion || '']
   ) as Cuenta;
   if (actor) {
-    auditLog({
+    await auditLog({
       action: 'account_created',
       actorId: actor.id,
       actorName: actor.name,
@@ -537,7 +537,7 @@ export async function updateCuenta(colegioId: number, id: number, data: { nombre
     [colegioId, id, data.nombre, data.tipo, data.descripcion || '']
   );
   if (updated && actor) {
-    auditLog({
+    await auditLog({
       action: 'account_updated',
       actorId: actor.id,
       actorName: actor.name,
@@ -557,7 +557,7 @@ export async function deleteCuenta(colegioId: number, id: number, actor?: { id: 
   const row = await queryOne(`DELETE FROM cuentas WHERE id=$2 AND colegio_id=$1 RETURNING id`, [colegioId, id]);
   const ok = !!row;
   if (ok && actor) {
-    auditLog({
+    await auditLog({
       action: 'account_deleted',
       actorId: actor.id,
       actorName: actor.name,
@@ -1075,7 +1075,7 @@ export async function createMovimiento(colegioId: number, data: {
   );
   const created = mapMovimiento(row);
   if (actor) {
-    auditLog({
+    await auditLog({
       action: 'movement_created',
       actorId: actor.id,
       actorName: actor.name,
@@ -1100,7 +1100,7 @@ export async function updateMovimiento(colegioId: number, id: number, data: {
   );
   const updated = row ? mapMovimiento(row) : null;
   if (updated && actor) {
-    auditLog({
+    await auditLog({
       action: 'movement_updated',
       actorId: actor.id,
       actorName: actor.name,
@@ -1121,7 +1121,7 @@ export async function deleteMovimiento(colegioId: number, id: number, actor?: { 
   if (mov.origen === 'cobro') return { ok: false, motivo: 'cobro' };
   const ok = await query(`DELETE FROM movimientos WHERE id=$2 AND colegio_id=$1`, [colegioId, id]).then(() => true);
   if (ok && actor) {
-    auditLog({
+    await auditLog({
       action: 'movement_deleted',
       actorId: actor.id,
       actorName: actor.name,

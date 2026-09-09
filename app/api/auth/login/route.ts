@@ -43,6 +43,17 @@ export async function POST(request: Request) {
     const colegio = await getColegioById(colegioId);
 
     if (!userForAuth || !userForAuth.passwordHash || !(await comparePassword(password, userForAuth.passwordHash))) {
+      await auditLog({
+        action: 'login_failed',
+        actorId: userForAuth?.id ?? null,
+        actorName: userForAuth?.name ?? username,
+        actorRole: userForAuth?.role ?? null,
+        colegioId,
+        colegioNombre: colegio?.nombre ?? null,
+        targetId: userForAuth?.id ?? null,
+        targetType: 'usuario',
+        detail: 'credenciales_invalidas',
+      });
       return NextResponse.json(
         { error: 'Credenciales inválidas' },
         { status: 401 }
@@ -50,12 +61,34 @@ export async function POST(request: Request) {
     }
 
     if (!colegio) {
+      await auditLog({
+        action: 'login_failed',
+        actorId: userForAuth.id,
+        actorName: userForAuth.name,
+        actorRole: userForAuth.role,
+        colegioId,
+        colegioNombre: null,
+        targetId: userForAuth.id,
+        targetType: 'usuario',
+        detail: 'colegio_no_existe',
+      });
       return NextResponse.json({ error: 'El colegio seleccionado no existe' }, { status: 400 });
     }
 
     // Los usuarios normales solo pueden entrar a su propio colegio.
     // El superadmin puede entrar a cualquier colegio que seleccione.
     if (userForAuth.role !== 'superadmin' && userForAuth.colegio_id !== colegioId) {
+      await auditLog({
+        action: 'login_failed',
+        actorId: userForAuth.id,
+        actorName: userForAuth.name,
+        actorRole: userForAuth.role,
+        colegioId,
+        colegioNombre: colegio.nombre,
+        targetId: userForAuth.id,
+        targetType: 'usuario',
+        detail: 'usuario_no_pertenece_colegio',
+      });
       return NextResponse.json(
         { error: `El usuario no pertenece al colegio "${colegio.nombre}"` },
         { status: 403 }
@@ -64,6 +97,17 @@ export async function POST(request: Request) {
 
     // Validar que el colegio esté activo (el superadmin puede entrar aunque esté desactivado)
     if (userForAuth.role !== 'superadmin' && !colegio.activo) {
+      await auditLog({
+        action: 'login_failed',
+        actorId: userForAuth.id,
+        actorName: userForAuth.name,
+        actorRole: userForAuth.role,
+        colegioId,
+        colegioNombre: colegio.nombre,
+        targetId: userForAuth.id,
+        targetType: 'usuario',
+        detail: 'colegio_desactivado',
+      });
       return NextResponse.json(
         { error: `El colegio "${colegio.nombre}" está desactivado. Contacte al administrador.` },
         { status: 403 }
@@ -104,7 +148,7 @@ export async function POST(request: Request) {
       });
 
       // Audit log del login exitoso (JSON)
-      auditLog({
+      await auditLog({
         action: 'login_success',
         actorId: userForAuth.id,
         actorName: userForAuth.name,
@@ -130,7 +174,7 @@ export async function POST(request: Request) {
     });
 
     // Audit log del login exitoso (redirect)
-    auditLog({
+    await auditLog({
       action: 'login_success',
       actorId: userForAuth.id,
       actorName: userForAuth.name,
